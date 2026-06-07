@@ -22,11 +22,11 @@ export default function SupplierVetting() {
                   <h3 className="text-lg font-semibold mb-1">{supplier.name}</h3>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <MapPin className="w-4 h-4" />
-                    {supplier.location}
+                    {supplier.country || 'Unknown'}
                   </div>
                 </div>
-                <Badge className={supplier.reliabilityScore >= 80 ? "bg-green-500/10 text-green-400" : "bg-yellow-500/10 text-yellow-400"}>
-                  {supplier.reliabilityScore}% Reliable
+                <Badge className={(supplier.reliabilityScore ?? 0) >= 80 ? "bg-green-500/10 text-green-400" : "bg-yellow-500/10 text-yellow-400"}>
+                  {supplier.reliabilityScore ?? 0}% Reliable
                 </Badge>
               </div>
 
@@ -35,7 +35,7 @@ export default function SupplierVetting() {
                   <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Shipping Time</p>
                   <div className="flex items-center gap-1 font-semibold">
                     <Clock className="w-4 h-4" />
-                    {supplier.shippingDays} days
+                    {supplier.shippingDaysMin ?? 0}-{supplier.shippingDaysMax ?? 0} days
                   </div>
                 </div>
                 <div>
@@ -46,12 +46,12 @@ export default function SupplierVetting() {
                   </div>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Response Rate</p>
-                  <p className="font-semibold">{supplier.responseRate}%</p>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Platform</p>
+                  <p className="font-semibold">{supplier.platform || 'Multi'}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Orders Completed</p>
-                  <p className="font-semibold">{supplier.ordersCompleted}</p>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Status</p>
+                  <p className="font-semibold text-green-400">Active</p>
                 </div>
               </div>
 
