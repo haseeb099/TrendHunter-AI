@@ -167,7 +167,7 @@ export default function ProductSearch() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4 py-3 border-y border-border">
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4 py-3 border-y border-muted">
                       <div>
                         <p className="text-xs text-muted-foreground uppercase tracking-wide">Price</p>
                         <p className="text-lg font-bold gradient-text">${product.price}</p>

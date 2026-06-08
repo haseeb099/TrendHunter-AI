@@ -103,10 +103,10 @@ export default function Dashboard() {
       <aside
         className={`${
           sidebarOpen ? "w-64" : "w-20"
-        } border-r border-border bg-card transition-all duration-300 flex flex-col`}
+        } border-r border-muted bg-card transition-all duration-300 flex flex-col`}
       >
         {/* Logo */}
-        <div className="p-4 border-b border-border flex items-center justify-between">
+        <div className="p-4 border-b border-muted flex items-center justify-between">
           {sidebarOpen && (
             <div className="flex items-center gap-2">
               <Sparkles className="w-6 h-6 text-primary" />
@@ -141,7 +141,7 @@ export default function Dashboard() {
         </nav>
 
         {/* User Footer */}
-        <div className="border-t border-border p-4 space-y-2">
+        <div className="border-t border-muted p-4 space-y-2">
           {sidebarOpen && (
             <div className="px-2 py-2 text-xs">
               <p className="text-muted-foreground truncate">{user.email}</p>

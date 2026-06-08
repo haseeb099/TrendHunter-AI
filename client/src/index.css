@@ -42,9 +42,7 @@
     --ring: 139 92 246;
   }
 
-  * {
-    @apply border-border;
-  }
+  /* Border color applied via CSS variables in components */
 
   html {
     @apply scroll-smooth;
@@ -182,7 +180,7 @@
   }
 
   .card-elevated {
-    @apply rounded-xl border border-border bg-card p-6 shadow-lg transition-all duration-300 hover:shadow-xl hover:border-primary/50;
+    @apply rounded-xl border border-muted bg-card p-6 shadow-lg transition-all duration-300 hover:shadow-xl hover:border-primary/50;
   }
 
   .gradient-text {
@@ -194,7 +192,7 @@
   }
 
   .input-elegant {
-    @apply rounded-lg border-2 border-border bg-input px-4 py-3 text-foreground placeholder-muted-foreground transition-all duration-200 focus:border-primary focus:outline-none;
+    @apply rounded-lg border-2 border-muted bg-input px-4 py-3 text-foreground placeholder-muted-foreground transition-all duration-200 focus:border-primary focus:outline-none;
   }
 }
 

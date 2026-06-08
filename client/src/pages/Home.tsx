@@ -22,7 +22,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Navigation */}
-      <nav className="border-b border-border bg-background/80 backdrop-blur-md sticky top-0 z-50">
+      <nav className="border-b border-muted bg-background/80 backdrop-blur-md sticky top-0 z-50">
         <div className="container flex items-center justify-between py-4">
           <div className="flex items-center gap-2">
             <Sparkles className="w-8 h-8 text-primary" />
@@ -201,7 +201,7 @@ export default function Home() {
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-border bg-card/50 py-12">
+      <footer className="border-t border-muted bg-card/50 py-12">
         <div className="container">
           <div className="grid md:grid-cols-4 gap-8 mb-8">
             <div>
@@ -235,7 +235,7 @@ export default function Home() {
               </ul>
             </div>
           </div>
-          <div className="border-t border-border pt-8 text-center text-sm text-muted-foreground">
+          <div className="border-t border-muted pt-8 text-center text-sm text-muted-foreground">
             <p>&copy; 2026 DropHunter AI. All rights reserved.</p>
           </div>
         </div>
