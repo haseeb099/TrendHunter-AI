@@ -15,6 +15,27 @@
       "when": 1780873193401,
       "tag": "0001_omniscient_squirrel_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1780881923932,
+      "tag": "0002_free_black_crow",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1780885000000,
+      "tag": "0003_api_env_sprint",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1780886000000,
+      "tag": "0004_user_events",
+      "breakpoints": true
     }
   ]
 }

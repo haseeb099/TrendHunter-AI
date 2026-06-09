@@ -17,6 +17,7 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  passwordHash: varchar("passwordHash", { length: 255 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -36,6 +37,64 @@ export const savedSearches = mysqlTable("saved_searches", {
 
 export type SavedSearch = typeof savedSearches.$inferSelect;
 
+// Trending feed snapshots
+export const trendingSnapshots = mysqlTable("trending_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  region: varchar("region", { length: 16 }).notNull(),
+  category: varchar("category", { length: 64 }),
+  payload: json("payload").notNull(),
+  sources: json("sources"),
+  isDemo: boolean("isDemo").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+});
+
+export type TrendingSnapshot = typeof trendingSnapshots.$inferSelect;
+
+// Supplier product offers cache
+export const productOffers = mysqlTable("product_offers", {
+  id: int("id").autoincrement().primaryKey(),
+  productId: varchar("productId", { length: 255 }),
+  productTitle: text("productTitle").notNull(),
+  supplierPlatform: mysqlEnum("supplierPlatform", ["cj", "aliexpress", "manual"]).notNull(),
+  supplierSku: varchar("supplierSku", { length: 255 }),
+  warehouse: varchar("warehouse", { length: 64 }),
+  shipFrom: varchar("shipFrom", { length: 8 }),
+  unitCost: float("unitCost").notNull(),
+  shippingCost: float("shippingCost").default(0).notNull(),
+  moq: int("moq").default(1),
+  processingDays: int("processingDays"),
+  shippingDaysMin: int("shippingDaysMin"),
+  shippingDaysMax: int("shippingDaysMax"),
+  currency: varchar("currency", { length: 8 }).default("USD"),
+  raw: json("raw"),
+  fetchedAt: timestamp("fetchedAt").defaultNow().notNull(),
+});
+
+export type ProductOfferRow = typeof productOffers.$inferSelect;
+
+// Named filter presets
+export const savedFilterPresets = mysqlTable("saved_filter_presets", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  name: varchar("name", { length: 128 }).notNull(),
+  filters: json("filters").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type SavedFilterPreset = typeof savedFilterPresets.$inferSelect;
+
+// User activity events (discover views, workflow actions)
+export const userEvents = mysqlTable("user_events", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  eventType: varchar("eventType", { length: 64 }).notNull(),
+  metadata: json("metadata"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type UserEvent = typeof userEvents.$inferSelect;
+
 // Product watchlist
 export const watchlistItems = mysqlTable("watchlist_items", {
   id: int("id").autoincrement().primaryKey(),
@@ -46,6 +105,9 @@ export const watchlistItems = mysqlTable("watchlist_items", {
   platform: varchar("platform", { length: 64 }).notNull(),
   price: float("price"),
   sourceUrl: text("sourceUrl"),
+  region: varchar("region", { length: 16 }),
+  supplierPlatform: varchar("supplierPlatform", { length: 32 }),
+  landedCost: float("landedCost"),
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
@@ -63,6 +125,10 @@ export const pipelineItems = mysqlTable("pipeline_items", {
   platform: varchar("platform", { length: 64 }),
   price: float("price"),
   sourceUrl: text("sourceUrl"),
+  region: varchar("region", { length: 16 }),
+  supplierPlatform: varchar("supplierPlatform", { length: 32 }),
+  landedCost: float("landedCost"),
+  selectedOfferId: int("selectedOfferId"),
   stage: mysqlEnum("stage", ["testing", "scaling", "paused", "dropped"]).default("testing").notNull(),
   validationScore: int("validationScore"),
   estimatedProfit: float("estimatedProfit"),

@@ -1,33 +1,65 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { PageHeader } from "@/components/PageHeader";
 import { Sparkles, Copy, Check } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Spinner } from "@/components/ui/spinner";
+import { toast } from "sonner";
 
 export default function SocialMediaKit() {
+  const [location] = useLocation();
   const [productTitle, setProductTitle] = useState("");
   const [productBenefit, setProductBenefit] = useState("");
-  const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const title = params.get("productTitle") ?? params.get("title");
+    const benefit = params.get("benefit");
+    if (title) setProductTitle(title);
+    if (benefit) setProductBenefit(benefit);
+  }, [location]);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [tiktokCaption, setTiktokCaption] = useState<string | null>(null);
+  const [instagramCaption, setInstagramCaption] = useState<string | null>(null);
+
+  const aiConfig = trpc.system.getConfig.useQuery();
   const hashtagsMutation = trpc.social.generateHashtags.useMutation();
   const adCopyMutation = trpc.social.generateAdCopy.useMutation();
   const captionMutation = trpc.social.generateCaption.useMutation();
+  const aiDisabled = aiConfig.data && !aiConfig.data.ai.configured;
 
   const handleGenerateHashtags = async () => {
-    if (!productTitle.trim()) return;
-    await hashtagsMutation.mutateAsync({ productTitle });
+    if (!productTitle.trim() || aiDisabled) return;
+    try {
+      await hashtagsMutation.mutateAsync({ productTitle });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to generate hashtags");
+    }
   };
 
   const handleGenerateAdCopy = async () => {
-    if (!productTitle.trim() || !productBenefit.trim()) return;
-    await adCopyMutation.mutateAsync({ productTitle, productBenefit });
+    if (!productTitle.trim() || !productBenefit.trim() || aiDisabled) return;
+    try {
+      await adCopyMutation.mutateAsync({ productTitle, productBenefit });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to generate ad copy");
+    }
   };
 
   const handleGenerateCaption = async (platform: "tiktok" | "instagram") => {
-    if (!productTitle.trim()) return;
-    await captionMutation.mutateAsync({ productTitle, platform });
+    if (!productTitle.trim() || aiDisabled) return;
+    try {
+      const result = await captionMutation.mutateAsync({ productTitle, platform });
+      const text = typeof result.caption === "string" ? result.caption : "";
+      if (platform === "tiktok") setTiktokCaption(text);
+      else setInstagramCaption(text);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to generate caption");
+    }
   };
 
   const copyToClipboard = (text: string, id: string) => {
@@ -38,10 +70,26 @@ export default function SocialMediaKit() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-4xl font-bold mb-2">Social Media Kit</h1>
-        <p className="text-muted-foreground">Generate AI-powered marketing content for your products</p>
-      </div>
+      <PageHeader
+        title="Social Media Kit"
+        description="Generate AI-powered hashtags, ad copy, and captions"
+      />
+
+      {(hashtagsMutation.error || adCopyMutation.error || captionMutation.error) ? (
+        <Alert variant="destructive">
+          <AlertDescription>
+            {hashtagsMutation.error?.message ??
+              adCopyMutation.error?.message ??
+              captionMutation.error?.message}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {aiDisabled ? (
+        <Alert>
+          <AlertDescription>Add OPENAI_API_KEY to generate social content.</AlertDescription>
+        </Alert>
+      ) : null}
 
       <Card className="card-elevated p-6">
         <div className="space-y-4">
@@ -64,17 +112,21 @@ export default function SocialMediaKit() {
             />
           </div>
           <div className="grid md:grid-cols-3 gap-2">
-            <Button onClick={handleGenerateHashtags} disabled={hashtagsMutation.isPending} className="btn-primary">
+            <Button onClick={handleGenerateHashtags} disabled={hashtagsMutation.isPending || aiDisabled} >
               {hashtagsMutation.isPending ? <Spinner className="w-4 h-4 mr-2" /> : <Sparkles className="w-4 h-4 mr-2" />}
               Hashtags
             </Button>
-            <Button onClick={handleGenerateAdCopy} disabled={adCopyMutation.isPending} className="btn-primary">
+            <Button onClick={handleGenerateAdCopy} disabled={adCopyMutation.isPending || aiDisabled} >
               {adCopyMutation.isPending ? <Spinner className="w-4 h-4 mr-2" /> : <Sparkles className="w-4 h-4 mr-2" />}
               Ad Copy
             </Button>
-            <Button onClick={() => handleGenerateCaption("tiktok")} disabled={captionMutation.isPending} className="btn-primary">
+            <Button onClick={() => handleGenerateCaption("tiktok")} disabled={captionMutation.isPending || aiDisabled} >
               {captionMutation.isPending ? <Spinner className="w-4 h-4 mr-2" /> : <Sparkles className="w-4 h-4 mr-2" />}
-              Caption
+              TikTok
+            </Button>
+            <Button onClick={() => handleGenerateCaption("instagram")} disabled={captionMutation.isPending || aiDisabled} >
+              {captionMutation.isPending ? <Spinner className="w-4 h-4 mr-2" /> : <Sparkles className="w-4 h-4 mr-2" />}
+              Instagram
             </Button>
           </div>
         </div>
@@ -95,6 +147,39 @@ export default function SocialMediaKit() {
             ))}
           </div>
         </Card>
+      )}
+
+      {(tiktokCaption || instagramCaption) && (
+        <div className="grid md:grid-cols-2 gap-4 animate-in">
+          {tiktokCaption ? (
+            <Card className="card-elevated p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-semibold">TikTok Caption</h3>
+                <button
+                  onClick={() => copyToClipboard(tiktokCaption, "tiktok-cap")}
+                  className="p-2 hover:bg-primary/20 rounded transition"
+                >
+                  {copiedId === "tiktok-cap" ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+                </button>
+              </div>
+              <p className="text-sm whitespace-pre-wrap">{tiktokCaption}</p>
+            </Card>
+          ) : null}
+          {instagramCaption ? (
+            <Card className="card-elevated p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-semibold">Instagram Caption</h3>
+                <button
+                  onClick={() => copyToClipboard(instagramCaption, "ig-cap")}
+                  className="p-2 hover:bg-primary/20 rounded transition"
+                >
+                  {copiedId === "ig-cap" ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+                </button>
+              </div>
+              <p className="text-sm whitespace-pre-wrap">{instagramCaption}</p>
+            </Card>
+          ) : null}
+        </div>
       )}
 
       {adCopyMutation.data && (

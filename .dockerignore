@@ -1,0 +1,36 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Build output (rebuilt in image)
+dist
+
+# Local dev
+.env
+.env.local
+.env.*.local
+uploads/*
+!uploads/.gitkeep
+
+# Git & IDE
+.git
+.gitignore
+.cursor
+.vscode
+*.md
+!README.md
+
+# Tests
+**/*.test.ts
+**/*.spec.ts
+vitest.config.ts
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Misc
+attached_assets
+agent-transcripts
+terminals

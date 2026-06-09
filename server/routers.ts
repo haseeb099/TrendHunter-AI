@@ -3,6 +3,10 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router, protectedProcedure } from "./_core/trpc";
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import { nanoid } from "nanoid";
+import { hashPassword, verifyPassword } from "./_core/password";
+import { createSessionToken, setSessionCookie } from "./_core/session";
 import {
   getSavedSearches,
   createSavedSearch,
@@ -26,13 +30,102 @@ import {
   createSupplier,
   updateSupplier,
   deleteSupplier,
+  getUserByEmail,
+  countUsers,
+  createUser,
+  getFilterPresets,
+  saveFilterPreset,
+  deleteFilterPreset,
+  countUserEvents,
+  recordUserEvent,
 } from "./db";
-import { invokeLLM } from "./_core/llm";
+import { invokeLLMOrThrow } from "./_core/aiHelpers";
+import { getSearchProviderStatus, searchProducts as runProductSearch } from "./search";
+import {
+  PRODUCT_CATEGORIES,
+  REGION_LABELS,
+  SHIP_FROM_OPTIONS,
+  SORT_OPTIONS,
+  type ProductHuntFilters,
+  type RegionCode,
+} from "@shared/searchTypes";
+import { ENV } from "./_core/env";
+import { getSupportedRegionOptions } from "./search/regions";
+import { getTrendingFeed } from "./trending";
+import { getOffersForProduct, getOffersStatus } from "./suppliers";
+import { getStorageStatus, storageGet, storagePut } from "./storage";
+
+const regionCodeSchema = z.enum(["US", "UK", "EU", "GLOBAL"]);
+const shipFromSchema = z.enum(["US", "UK", "CN", "EU"]);
+const sortSchema = z.enum(["price_asc", "price_desc", "trend_score", "rating"]);
+
+const productHuntFiltersSchema = z
+  .object({
+    priceRange: z.object({ min: z.number(), max: z.number() }).optional(),
+    region: regionCodeSchema.optional(),
+    category: z.string().optional(),
+    shipFrom: z.array(shipFromSchema).optional(),
+    sort: sortSchema.optional(),
+    minRating: z.number().optional(),
+    maxShippingDays: z.number().optional(),
+  })
+  .optional();
 
 export const appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),
+    register: publicProcedure
+      .input(
+        z.object({
+          email: z.string().email(),
+          password: z.string().min(8, "Password must be at least 8 characters"),
+          name: z.string().min(1).optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const existing = await getUserByEmail(input.email);
+        if (existing) {
+          throw new TRPCError({ code: "CONFLICT", message: "Email already registered" });
+        }
+
+        const openId = nanoid();
+        const isFirstUser = (await countUsers()) === 0;
+        const user = await createUser({
+          openId,
+          email: input.email,
+          name: input.name ?? input.email.split("@")[0] ?? "User",
+          passwordHash: hashPassword(input.password),
+          loginMethod: "local",
+          role: isFirstUser ? "admin" : "user",
+          lastSignedIn: new Date(),
+        });
+
+        if (!user) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to create user" });
+        }
+
+        const token = await createSessionToken(user.openId, user.name ?? "");
+        setSessionCookie(ctx.req, ctx.res, token);
+        return user;
+      }),
+    login: publicProcedure
+      .input(
+        z.object({
+          email: z.string().email(),
+          password: z.string().min(1),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const user = await getUserByEmail(input.email);
+        if (!user?.passwordHash || !verifyPassword(input.password, user.passwordHash)) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid email or password" });
+        }
+
+        const token = await createSessionToken(user.openId, user.name ?? "");
+        setSessionCookie(ctx.req, ctx.res, token);
+        return user;
+      }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -43,42 +136,101 @@ export const appRouter = router({
   // Search & Discovery
   search: router({
     getSavedSearches: protectedProcedure.query(({ ctx }) => getSavedSearches(ctx.user.id)),
-    savSearch: protectedProcedure
+    saveSearch: protectedProcedure
       .input(z.object({ query: z.string(), filters: z.unknown().optional() }))
       .mutation(({ ctx, input }) => createSavedSearch(ctx.user.id, input.query, input.filters)),
     deleteSavedSearch: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(({ ctx, input }) => deleteSavedSearch(input.id, ctx.user.id)),
-    // Mock multi-platform search
+    getProviderStatus: protectedProcedure.query(() => getSearchProviderStatus()),
+    getFilterOptions: protectedProcedure.query(() => ({
+      regions: getSupportedRegionOptions(),
+      categories: PRODUCT_CATEGORIES.map((c) => ({
+        value: c,
+        label: c.charAt(0).toUpperCase() + c.slice(1),
+      })),
+      shipFromOptions: SHIP_FROM_OPTIONS,
+      sortOptions: SORT_OPTIONS,
+      defaultRegion: ENV.defaultRegion,
+      supportedRegions: ENV.supportedRegions,
+      regionLabels: REGION_LABELS,
+    })),
+    getFilterPresets: protectedProcedure.query(({ ctx }) => getFilterPresets(ctx.user.id)),
+    saveFilterPreset: protectedProcedure
+      .input(z.object({ name: z.string().min(1), filters: productHuntFiltersSchema }))
+      .mutation(({ ctx, input }) =>
+        saveFilterPreset(ctx.user.id, input.name, (input.filters ?? {}) as ProductHuntFilters)
+      ),
+    deleteFilterPreset: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(({ ctx, input }) => deleteFilterPreset(input.id, ctx.user.id)),
     searchProducts: protectedProcedure
-      .input(z.object({ query: z.string(), platform: z.string(), filters: z.unknown().optional() }))
+      .input(
+        z.object({
+          query: z.string().min(1),
+          platform: z.enum(["all", "ebay", "amazon", "shopify", "tiktok"]),
+          filters: productHuntFiltersSchema,
+        })
+      )
       .query(async ({ input }) => {
-        // In production, integrate with actual APIs (eBay, Amazon, Shopify, TikTok)
-        // For now, return mock data
-        return {
-          results: [
-            {
-              id: "1",
-              title: "Premium Wireless Headphones",
-              price: 45.99,
-              platform: input.platform,
-              image: "https://via.placeholder.com/200",
-              shippingDays: 5,
-              supplier: "AliExpress",
-              rating: 4.5,
-            },
-            {
-              id: "2",
-              title: "Portable Phone Charger",
-              price: 12.99,
-              platform: input.platform,
-              image: "https://via.placeholder.com/200",
-              shippingDays: 7,
-              supplier: "Amazon",
-              rating: 4.8,
-            },
-          ],
-        };
+        return runProductSearch(
+          input.query,
+          input.platform,
+          input.filters as ProductHuntFilters | undefined
+        );
+      }),
+  }),
+
+  trending: router({
+    getFeed: publicProcedure
+      .input(
+        z.object({
+          region: regionCodeSchema.optional(),
+          category: z.string().optional(),
+        })
+      )
+      .query(({ input }) =>
+        getTrendingFeed({
+          region: input.region as RegionCode | undefined,
+          category: input.category,
+        })
+      ),
+    getRegions: publicProcedure.query(() => ({
+      defaultRegion: ENV.defaultRegion,
+      regions: getSupportedRegionOptions(),
+    })),
+    getCategories: publicProcedure
+      .input(z.object({ region: regionCodeSchema.optional() }))
+      .query(() => ({
+        categories: PRODUCT_CATEGORIES.map((c) => ({
+          value: c,
+          label: c.charAt(0).toUpperCase() + c.slice(1),
+        })),
+      })),
+  }),
+
+  upload: router({
+    getStatus: protectedProcedure.query(() => getStorageStatus()),
+    getUrl: protectedProcedure
+      .input(z.object({ key: z.string().min(1) }))
+      .query(({ input }) => storageGet(input.key)),
+    uploadFile: protectedProcedure
+      .input(
+        z.object({
+          filename: z.string().min(1).max(255),
+          contentType: z.string().min(1).max(128),
+          dataBase64: z.string().max(8_000_000),
+          folder: z.string().max(64).optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const safeName = input.filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const folder = (input.folder ?? "uploads").replace(/[^a-zA-Z0-9/_-]/g, "");
+        const buffer = Buffer.from(input.dataBase64, "base64");
+        if (buffer.length > 5 * 1024 * 1024) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "File exceeds 5 MB limit" });
+        }
+        return storagePut(`${folder}/${safeName}`, buffer, input.contentType);
       }),
   }),
 
@@ -94,6 +246,9 @@ export const appRouter = router({
           platform: z.string(),
           price: z.number().optional(),
           sourceUrl: z.string().optional(),
+          region: z.string().optional(),
+          supplierPlatform: z.string().optional(),
+          landedCost: z.number().optional(),
           notes: z.string().optional(),
         })
       )
@@ -123,7 +278,7 @@ Provide a JSON response with:
 
 Also include brief reasoning for each score.`;
 
-        const response = await invokeLLM({
+        const response = await invokeLLMOrThrow({
           messages: [{ role: "user", content: prompt }],
           response_format: {
             type: "json_schema",
@@ -156,26 +311,91 @@ Also include brief reasoning for each score.`;
   // Competitor Spy
   competitor: router({
     analyzeCompetitor: protectedProcedure
-      .input(z.object({ url: z.string(), keyword: z.string().optional() }))
+      .input(
+        z.object({
+          url: z.string().optional(),
+          keyword: z.string().optional(),
+        })
+      )
       .mutation(async ({ input }) => {
+        const keyword = input.keyword?.trim() ?? "";
+        const url = input.url?.trim() ?? "";
+
+        let marketplaceContext = "";
+        if (keyword) {
+          try {
+            const searchResult = await runProductSearch(keyword, "all", {
+              sort: "price_asc",
+            });
+            const top = searchResult.results.slice(0, 6);
+            if (top.length > 0) {
+              marketplaceContext = `\n\nLive marketplace snapshot (${searchResult.isDemo ? "demo" : "live"} data):\n${top
+                .map(
+                  (p) =>
+                    `- [${p.platform}] ${p.title} @ ${p.price} ${p.currency ?? "USD"}${p.rating ? ` rating ${p.rating}` : ""}`
+                )
+                .join("\n")}`;
+            }
+          } catch {
+            /* search enrichment is best-effort */
+          }
+        }
+
         const prompt = `Analyze this competitor listing/store:
-URL: ${input.url}
-${input.keyword ? `Keyword focus: ${input.keyword}` : ""}
+${url ? `URL: ${url}` : "URL: not provided"}
+${keyword ? `Keyword focus: ${keyword}` : ""}${marketplaceContext}
 
 Provide competitive intelligence in JSON format:
 - pricing: estimated price range
 - reviewSentiment: positive/neutral/negative
 - salesVelocity: estimated monthly sales (low/medium/high)
-- adSpend: estimated monthly ad spend (if detectable)
+- adSpend: estimated monthly ad spend (use "unknown" if not detectable)
 - topProducts: list of top 3 products
-- gaps: identified market gaps`;
+- gaps: identified market gaps
+- threats: competitive threats (array of strings, use empty array if none)
+- position: overall market position summary`;
 
-        const response = await invokeLLM({
+        const response = await invokeLLMOrThrow({
           messages: [{ role: "user", content: prompt }],
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "competitor_analysis",
+              strict: true,
+              schema: {
+                type: "object",
+                properties: {
+                  pricing: { type: "string" },
+                  reviewSentiment: { type: "string" },
+                  salesVelocity: { type: "string" },
+                  adSpend: { type: "string" },
+                  topProducts: { type: "array", items: { type: "string" } },
+                  gaps: { type: "array", items: { type: "string" } },
+                  threats: { type: "array", items: { type: "string" } },
+                  position: { type: "string" },
+                },
+                required: [
+                  "pricing",
+                  "reviewSentiment",
+                  "salesVelocity",
+                  "adSpend",
+                  "topProducts",
+                  "gaps",
+                  "threats",
+                  "position",
+                ],
+                additionalProperties: false,
+              },
+            },
+          },
         });
 
+        const content = response.choices[0]?.message.content;
+        const parsed =
+          content && typeof content === "string" ? JSON.parse(content) : { position: "Analysis complete" };
+
         return {
-          analysis: response.choices[0]?.message.content || "Analysis complete",
+          analysis: parsed,
           timestamp: new Date(),
         };
       }),
@@ -246,10 +466,30 @@ Provide competitive intelligence in JSON format:
       .mutation(({ ctx, input }) => deleteSupplier(input.id, ctx.user.id)),
     vetSupplier: protectedProcedure
       .input(z.object({ supplierId: z.number() }))
-      .mutation(async () => {
-        // Mark sample as ordered
+      .mutation(async ({ ctx, input }) => {
+        await updateSupplier(input.supplierId, ctx.user.id, {
+          sampleOrdered: true,
+          sampleStatus: "ordered",
+          sampleOrderDate: new Date(),
+        });
         return { status: "sample_ordered", estimatedDelivery: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) };
       }),
+    getOffersForProduct: protectedProcedure
+      .input(
+        z.object({
+          productId: z.string().optional(),
+          title: z.string().min(1),
+          region: regionCodeSchema.optional(),
+        })
+      )
+      .query(({ input }) =>
+        getOffersForProduct({
+          productId: input.productId,
+          title: input.title,
+          region: input.region as RegionCode | undefined,
+        })
+      ),
+    getOffersStatus: protectedProcedure.query(() => getOffersStatus()),
   }),
 
   // Social Media Kit
@@ -263,7 +503,7 @@ ${input.niche ? `Niche: ${input.niche}` : ""}
 
 Return as a JSON array of hashtag strings (without the # symbol).`;
 
-        const response = await invokeLLM({
+        const response = await invokeLLMOrThrow({
           messages: [{ role: "user", content: prompt }],
           response_format: {
             type: "json_schema",
@@ -298,7 +538,7 @@ Key Benefit: ${input.productBenefit}
 
 Return as JSON with array of copy strings. Each should be 50-100 characters, attention-grabbing, and include a CTA.`;
 
-        const response = await invokeLLM({
+        const response = await invokeLLMOrThrow({
           messages: [{ role: "user", content: prompt }],
           response_format: {
             type: "json_schema",
@@ -332,7 +572,7 @@ Product: ${input.productTitle}
 
 Make it engaging, include relevant emojis, and a hook that stops the scroll. Return as plain text.`;
 
-        const response = await invokeLLM({
+        const response = await invokeLLMOrThrow({
           messages: [{ role: "user", content: prompt }],
         });
 
@@ -355,11 +595,42 @@ Identify:
 
 Return as JSON with gaps array, each containing: title, opportunity, demand_level, competition_level, estimated_margin.`;
 
-        const response = await invokeLLM({
+        const response = await invokeLLMOrThrow({
           messages: [{ role: "user", content: prompt }],
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "market_gaps",
+              strict: true,
+              schema: {
+                type: "object",
+                properties: {
+                  gaps: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        title: { type: "string" },
+                        opportunity: { type: "string" },
+                        demand_level: { type: "string" },
+                        competition_level: { type: "string" },
+                        estimated_margin: { type: "string" },
+                      },
+                      required: ["title", "opportunity", "demand_level", "competition_level", "estimated_margin"],
+                      additionalProperties: false,
+                    },
+                  },
+                },
+                required: ["gaps"],
+                additionalProperties: false,
+              },
+            },
+          },
         });
 
-        return { gaps: response.choices[0]?.message.content || "" };
+        const content = response.choices[0]?.message.content;
+        if (!content || typeof content !== "string") throw new Error("No response from LLM");
+        return JSON.parse(content);
       }),
   }),
 
@@ -375,6 +646,10 @@ Return as JSON with gaps array, each containing: title, opportunity, demand_leve
           platform: z.string().optional(),
           price: z.number().optional(),
           sourceUrl: z.string().optional(),
+          region: z.string().optional(),
+          supplierPlatform: z.string().optional(),
+          landedCost: z.number().optional(),
+          selectedOfferId: z.number().optional(),
           stage: z.enum(["testing", "scaling", "paused", "dropped"]).default("testing"),
           validationScore: z.number().optional(),
           estimatedProfit: z.number().optional(),
@@ -426,7 +701,7 @@ Help users find winning products, validate opportunities, spy on competitors, an
 Provide actionable insights, data-driven recommendations, and strategic guidance.
 Be concise but thorough. Ask clarifying questions when needed.`;
 
-        const response = await invokeLLM({
+        const response = await invokeLLMOrThrow({
           messages: [{ role: "system", content: systemPrompt }, ...conversationHistory],
         });
 
@@ -445,15 +720,75 @@ Be concise but thorough. Ask clarifying questions when needed.`;
       }),
   }),
 
-  // Analytics (mock for now)
+  // Analytics
   analytics: router({
+    recordDiscoverView: protectedProcedure
+      .input(
+        z.object({
+          region: z.string().optional(),
+          category: z.string().optional(),
+        })
+      )
+      .mutation(({ ctx, input }) =>
+        recordUserEvent(ctx.user.id, "discover_view", {
+          region: input.region,
+          category: input.category,
+        })
+      ),
     getDashboardMetrics: protectedProcedure.query(async ({ ctx }) => {
       const watchlist = await getWatchlist(ctx.user.id);
       const pipeline = await getPipelineItems(ctx.user.id);
       const profits = await getProfitCalculations(ctx.user.id);
 
+      const totalRevenue = profits.reduce((sum, p) => sum + (p.sellingPrice ?? 0), 0);
+      const totalProfit = profits.reduce((sum, p) => sum + (p.netProfit ?? 0), 0);
+      const averageMargin =
+        profits.length > 0
+          ? profits.reduce((sum, p) => sum + (p.roi ?? 0), 0) / profits.length
+          : 0;
+
+      const profitByProduct = profits.slice(0, 8).map((p) => ({
+        product: p.productTitle.length > 24 ? `${p.productTitle.slice(0, 24)}…` : p.productTitle,
+        profit: Math.round(p.netProfit ?? 0),
+        revenue: Math.round(p.sellingPrice ?? 0),
+      }));
+
+      const now = new Date();
+      const trendData = Array.from({ length: 6 }, (_, i) => {
+        const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+        const monthStart = new Date(d.getFullYear(), d.getMonth(), 1);
+        const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
+        const label = d.toLocaleString("en-US", { month: "short" });
+        const monthPipeline = pipeline.filter((p) => {
+          const created = p.createdAt ? new Date(p.createdAt) : null;
+          return created && created >= monthStart && created <= monthEnd;
+        });
+        const monthProfits = profits.filter((p) => {
+          const created = p.createdAt ? new Date(p.createdAt) : null;
+          return created && created >= monthStart && created <= monthEnd;
+        });
+        return {
+          month: label,
+          products: monthPipeline.length,
+          revenue: Math.round(monthProfits.reduce((s, p) => s + (p.sellingPrice ?? 0), 0)),
+        };
+      });
+
+      const discoverViews = await countUserEvents(ctx.user.id, "discover_view");
+      const searchToPipeline = pipeline.filter((p) => p.sourceUrl).length;
+      const validateToPipeline = pipeline.filter((p) => p.validationScore != null).length;
+      const withLandedCost = pipeline.filter((p) => p.landedCost != null).length;
+
       return {
         totalWatchlistItems: watchlist.length,
+        discoverViews,
+        searchToPipeline,
+        validateToPipeline,
+        withLandedCost,
+        activeProducts: pipeline.filter((p) => p.stage === "testing" || p.stage === "scaling").length,
+        totalRevenue: Math.round(totalRevenue),
+        totalProfit: Math.round(totalProfit),
+        averageMargin: Math.round(averageMargin * 10) / 10,
         pipelineByStage: {
           testing: pipeline.filter((p) => p.stage === "testing").length,
           scaling: pipeline.filter((p) => p.stage === "scaling").length,
@@ -461,13 +796,9 @@ Be concise but thorough. Ask clarifying questions when needed.`;
           dropped: pipeline.filter((p) => p.stage === "dropped").length,
         },
         totalProfitCalculations: profits.length,
-        averageProfit: profits.length > 0 ? profits.reduce((sum, p) => sum + (p.netProfit || 0), 0) / profits.length : 0,
-        trendData: [
-          { month: "Jan", products: 5, revenue: 1200 },
-          { month: "Feb", products: 8, revenue: 2100 },
-          { month: "Mar", products: 12, revenue: 3500 },
-          { month: "Apr", products: 15, revenue: 4800 },
-        ],
+        averageProfit: profits.length > 0 ? totalProfit / profits.length : 0,
+        profitByProduct,
+        trendData,
       };
     }),
   }),
