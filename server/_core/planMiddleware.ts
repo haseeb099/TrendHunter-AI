@@ -22,7 +22,25 @@ const requireActiveAccount = t.middleware(async ({ ctx, next }) => {
   return next({ ctx });
 });
 
-export const protectedBase = authenticatedProcedure.use(requireActiveAccount);
+const enforceMaintenance = t.middleware(async ({ ctx, next }) => {
+  const user = ctx.user;
+  if (user && user.role !== "admin") {
+    const settings = await getPlatformSettings();
+    if (settings.maintenance_mode) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message:
+          String(settings.maintenance_message ?? "") ||
+          "Platform is under maintenance. Please try again later.",
+      });
+    }
+  }
+  return next({ ctx });
+});
+
+export const protectedBase = authenticatedProcedure
+  .use(requireActiveAccount)
+  .use(enforceMaintenance);
 
 export function featureProcedure(feature: FeatureId) {
   return protectedBase.use(async (opts) => {
@@ -35,7 +53,6 @@ export function searchProcedure() {
   return protectedBase.use(async (opts) => {
     const user = getCtxUser(opts.ctx) as User;
     await assertFeatureAccess(user, "discover");
-    await assertSearchQuota(user);
     return opts.next(opts);
   });
 }

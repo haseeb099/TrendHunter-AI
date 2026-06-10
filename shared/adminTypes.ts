@@ -7,6 +7,7 @@ export type LimitOverrides = {
   aiCallsPerMonth?: number;
   pipelineItems?: number;
   watchlistItems?: number;
+  liveCreditsPerMonth?: number;
 };
 
 export type AdminUserSummary = {

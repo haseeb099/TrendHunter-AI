@@ -64,6 +64,41 @@
       "when": 1780890000000,
       "tag": "0008_stripe_webhooks",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1780891000000,
+      "tag": "0009_data_platform",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1780892000000,
+      "tag": "0010_saved_social_kits",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1780893000000,
+      "tag": "0011_intel_alerts",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1780894000000,
+      "tag": "0012_tiktok_ads",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "5",
+      "when": 1780895000000,
+      "tag": "0013_credit_purchased_balance",
+      "breakpoints": true
     }
   ]
 }

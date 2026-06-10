@@ -24,6 +24,11 @@ import {
   coupons,
   couponRedemptions,
   stripeWebhookEvents,
+  savedSocialKits,
+  InsertSavedSocialKit,
+  intelKeywordWatches,
+  intelDigestPrefs,
+  InsertIntelKeywordWatch,
 } from "../drizzle/schema";
 import type { AccountStatus, LimitOverrides } from "@shared/adminTypes";
 import type { ProductHuntFilters } from "@shared/searchTypes";
@@ -319,6 +324,42 @@ export async function getValidTrendingSnapshot(region: string, category?: string
     .from(trendingSnapshots)
     .where(and(...conditions))
     .orderBy(desc(trendingSnapshots.createdAt))
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
+export async function getStaleTrendingSnapshot(region: string, category?: string) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const conditions = [eq(trendingSnapshots.region, region)];
+
+  if (category) {
+    conditions.push(eq(trendingSnapshots.category, category));
+  } else {
+    conditions.push(isNull(trendingSnapshots.category));
+  }
+
+  const rows = await db
+    .select()
+    .from(trendingSnapshots)
+    .where(and(...conditions))
+    .orderBy(desc(trendingSnapshots.createdAt))
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
+export async function getLatestIngestRun() {
+  const db = await getDb();
+  if (!db) return null;
+
+  const { ingestRuns } = await import("../drizzle/schema");
+  const rows = await db
+    .select()
+    .from(ingestRuns)
+    .orderBy(desc(ingestRuns.startedAt))
     .limit(1);
 
   return rows[0] ?? null;
@@ -1153,6 +1194,184 @@ export async function markStripeWebhookProcessed(
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.insert(stripeWebhookEvents).values({ eventId, eventType });
+}
+
+// Saved social kits
+export async function getSavedSocialKits(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(savedSocialKits)
+    .where(eq(savedSocialKits.userId, userId))
+    .orderBy(desc(savedSocialKits.updatedAt));
+}
+
+export async function getSavedSocialKitById(id: number, userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(savedSocialKits)
+    .where(and(eq(savedSocialKits.id, id), eq(savedSocialKits.userId, userId)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function countSavedSocialKits(userId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const rows = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(savedSocialKits)
+    .where(eq(savedSocialKits.userId, userId));
+  return Number(rows[0]?.count ?? 0);
+}
+
+export async function saveSocialKit(kit: InsertSavedSocialKit) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.insert(savedSocialKits).values(kit);
+  return Number((result as { insertId?: number }[])[0]?.insertId ?? 0);
+}
+
+export async function updateSocialKit(
+  id: number,
+  userId: number,
+  data: Partial<Pick<InsertSavedSocialKit, "name" | "payload" | "productBenefit">>
+) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(savedSocialKits)
+    .set(data)
+    .where(and(eq(savedSocialKits.id, id), eq(savedSocialKits.userId, userId)));
+}
+
+export async function deleteSocialKit(id: number, userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .delete(savedSocialKits)
+    .where(and(eq(savedSocialKits.id, id), eq(savedSocialKits.userId, userId)));
+}
+
+// Intel keyword watches & digest prefs
+export async function getKeywordWatches(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(intelKeywordWatches)
+    .where(eq(intelKeywordWatches.userId, userId))
+    .orderBy(desc(intelKeywordWatches.createdAt));
+}
+
+export async function getAllKeywordWatches() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(intelKeywordWatches);
+}
+
+export async function countKeywordWatches(userId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const rows = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(intelKeywordWatches)
+    .where(eq(intelKeywordWatches.userId, userId));
+  return Number(rows[0]?.count ?? 0);
+}
+
+export async function addKeywordWatch(watch: InsertIntelKeywordWatch) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.insert(intelKeywordWatches).values(watch);
+  return Number((result as { insertId?: number }[])[0]?.insertId ?? 0);
+}
+
+export async function removeKeywordWatch(id: number, userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .delete(intelKeywordWatches)
+    .where(and(eq(intelKeywordWatches.id, id), eq(intelKeywordWatches.userId, userId)));
+}
+
+export async function updateKeywordWatchLabel(
+  id: number,
+  userId: number,
+  label: string | null
+) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(intelKeywordWatches)
+    .set({ lastMomentumLabel: label })
+    .where(and(eq(intelKeywordWatches.id, id), eq(intelKeywordWatches.userId, userId)));
+}
+
+export async function getDigestPrefs(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(intelDigestPrefs)
+    .where(eq(intelDigestPrefs.userId, userId))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getAllDigestPrefs() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(intelDigestPrefs).where(eq(intelDigestPrefs.enabled, true));
+}
+
+export async function upsertDigestPrefs(
+  userId: number,
+  data: { enabled: boolean; region: string; category?: string | null }
+) {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await getDigestPrefs(userId);
+  if (existing) {
+    await db
+      .update(intelDigestPrefs)
+      .set({
+        enabled: data.enabled,
+        region: data.region,
+        category: data.category ?? null,
+      })
+      .where(eq(intelDigestPrefs.userId, userId));
+  } else {
+    await db.insert(intelDigestPrefs).values({
+      userId,
+      enabled: data.enabled,
+      region: data.region,
+      category: data.category ?? null,
+    });
+  }
+}
+
+export async function markDigestSent(userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(intelDigestPrefs)
+    .set({ lastSentAt: new Date() })
+    .where(eq(intelDigestPrefs.userId, userId));
+}
+
+export async function getRecentIntelAlerts(userId: number, limit = 20) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(userEvents)
+    .where(and(eq(userEvents.userId, userId), eq(userEvents.eventType, "intel_alert")))
+    .orderBy(desc(userEvents.createdAt))
+    .limit(limit);
 }
 
 /** Latest unredeemed-at-checkout Stripe promotion code for discount_percent coupons. */

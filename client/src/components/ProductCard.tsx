@@ -11,10 +11,15 @@ import {
   TrendingUp,
   ShieldCheck,
   Eye,
+  LineChart,
+  MessageSquare,
 } from "lucide-react";
 import type { ProductSearchResult } from "@shared/searchTypes";
 import { formatProductPrice } from "@shared/searchTypes";
 import type { ProductDrawerTab } from "@/components/product-workspace/types";
+import { Link } from "wouter";
+import { getDashboardPath } from "@/config/dashboardNav";
+import { keywordToSlug } from "@shared/keywordUtils";
 
 type ProductCardProps = {
   product: ProductSearchResult;
@@ -183,6 +188,33 @@ export function ProductCard({
               <Search className="w-3.5 h-3.5" />
             </Button>
           ) : null}
+          {onViewDetails ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="px-2"
+              title="Market intelligence"
+              onClick={() => onViewDetails(product, "intelligence")}
+            >
+              <LineChart className="w-3.5 h-3.5" />
+            </Button>
+          ) : null}
+          <Button size="sm" variant="ghost" className="px-2" title="Social media kit" asChild>
+            <Link
+              href={`${getDashboardPath("social")}?productTitle=${encodeURIComponent(product.title)}&region=${product.region ?? "US"}&productId=${encodeURIComponent(product.id)}`}
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+            </Link>
+          </Button>
+          <Button size="sm" variant="ghost" className="px-2" title="Public trend report" asChild>
+            <Link
+              href={`/trends/${keywordToSlug(product.title)}?region=${product.region ?? "US"}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <TrendingUp className="w-3.5 h-3.5" />
+            </Link>
+          </Button>
           {product.sourceUrl ? (
             <Button size="sm" variant="ghost" className="px-2" asChild>
               <a href={product.sourceUrl} target="_blank" rel="noopener noreferrer" title="View listing">

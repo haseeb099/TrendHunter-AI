@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,8 +13,9 @@ import {
   CheckCircle,
   Plus,
   Sparkles,
+  Megaphone,
 } from "lucide-react";
-import type { ProductValidationResult } from "./types";
+import { pickValidationScores, type ProductValidationResult } from "./types";
 
 type ProductValidationPanelProps = {
   productTitle: string;
@@ -46,8 +47,15 @@ export function ProductValidationPanel({
   onAddToPipeline,
   pipelinePending,
 }: ProductValidationPanelProps) {
+  const utils = trpc.useUtils();
   const aiConfig = trpc.system.getConfig.useQuery();
-  const validateMutation = trpc.validate.validateProduct.useMutation();
+  const validateMutation = trpc.validate.validateProduct.useMutation({
+    onSuccess: (data) => {
+      if (data.creditsUsed && data.creditsUsed > 0) {
+        void utils.credits.getWallet.invalidate();
+      }
+    },
+  });
   const aiDisabled = aiConfig.data && !aiConfig.data.ai.configured;
 
   const handleValidate = async () => {
@@ -59,7 +67,8 @@ export function ProductValidationPanel({
     }
   };
 
-  const validation = validateMutation.data as ProductValidationResult | undefined;
+  const response = validateMutation.data;
+  const validation = pickValidationScores(response);
 
   useEffect(() => {
     if (autoRun && productTitle.trim() && !aiDisabled && !validation && !validateMutation.isPending) {
@@ -92,7 +101,8 @@ export function ProductValidationPanel({
           </div>
           <h4 className="font-display font-semibold text-base">AI viability check</h4>
           <p className="text-sm text-muted-foreground text-balance max-w-xs mx-auto">
-            Score trend, saturation, margins, and supplier reliability — without leaving this product.
+            Score trend, saturation, margins, and supplier reliability — enriched with cached trend
+            and ad data.
           </p>
           <Button
             onClick={handleValidate}
@@ -122,6 +132,27 @@ export function ProductValidationPanel({
 
       {validation ? (
         <div className="space-y-4 fade-up">
+          {response?.trendSignal || response?.adSnapshot ? (
+            <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">Market context (cached)</p>
+              <div className="flex flex-wrap gap-2">
+                {response.trendSignal ? (
+                  <Badge variant="secondary" className="text-[10px] capitalize">
+                    <TrendingUp className="w-3 h-3 mr-1" />
+                    {response.trendSignal.momentumLabel} · score{" "}
+                    {Math.round(response.trendSignal.momentumScore)}
+                  </Badge>
+                ) : null}
+                {response.adSnapshot ? (
+                  <Badge variant="outline" className="text-[10px]">
+                    <Megaphone className="w-3 h-3 mr-1" />
+                    {response.adSnapshot.activeAdCount} active ads
+                  </Badge>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
           <div className="product-score-hero">
             <div className="flex items-start justify-between gap-4">
               <div>
@@ -198,11 +229,9 @@ export function ProductValidationPanel({
             ) : null}
           </div>
 
-          {validation ? (
-            <Button variant="outline" size="sm" onClick={handleValidate} disabled={validateMutation.isPending}>
-              Re-run validation
-            </Button>
-          ) : null}
+          <Button variant="outline" size="sm" onClick={handleValidate} disabled={validateMutation.isPending}>
+            Re-run validation
+          </Button>
         </div>
       ) : null}
     </div>

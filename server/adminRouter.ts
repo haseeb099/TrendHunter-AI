@@ -44,6 +44,7 @@ const limitOverridesSchema = z
   .object({
     searchesPerMonth: z.number().int().min(-1).optional(),
     aiCallsPerMonth: z.number().int().min(-1).optional(),
+    liveCreditsPerMonth: z.number().int().min(-1).optional(),
     pipelineItems: z.number().int().min(-1).optional(),
     watchlistItems: z.number().int().min(-1).optional(),
   })
@@ -443,6 +444,7 @@ export const adminRouter = router({
             pipelineItems: z.number().int().min(-1),
             watchlistItems: z.number().int().min(-1),
             aiCallsPerMonth: z.number().int().min(-1),
+            liveCreditsPerMonth: z.number().int().min(-1),
           })
           .optional(),
       })

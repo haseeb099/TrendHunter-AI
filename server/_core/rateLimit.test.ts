@@ -3,17 +3,17 @@ import { TRPCError } from "@trpc/server";
 import { assertRateLimit } from "./rateLimit";
 
 describe("assertRateLimit", () => {
-  it("allows attempts within the limit", () => {
+  it("allows attempts within the limit", async () => {
     const key = `test:${Date.now()}`;
-    expect(() => assertRateLimit(key, 3, 60_000)).not.toThrow();
-    expect(() => assertRateLimit(key, 3, 60_000)).not.toThrow();
-    expect(() => assertRateLimit(key, 3, 60_000)).not.toThrow();
+    await expect(assertRateLimit(key, 3, 60_000)).resolves.toBeUndefined();
+    await expect(assertRateLimit(key, 3, 60_000)).resolves.toBeUndefined();
+    await expect(assertRateLimit(key, 3, 60_000)).resolves.toBeUndefined();
   });
 
-  it("blocks attempts over the limit", () => {
+  it("blocks attempts over the limit", async () => {
     const key = `test-block:${Date.now()}`;
-    assertRateLimit(key, 2, 60_000);
-    assertRateLimit(key, 2, 60_000);
-    expect(() => assertRateLimit(key, 2, 60_000)).toThrow(TRPCError);
+    await assertRateLimit(key, 2, 60_000);
+    await assertRateLimit(key, 2, 60_000);
+    await expect(assertRateLimit(key, 2, 60_000)).rejects.toThrow(TRPCError);
   });
 });

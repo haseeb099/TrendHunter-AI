@@ -11,6 +11,8 @@ import {
   minimumPlanForFeature,
   planHasFeature,
 } from "@shared/plans";
+import { PLAN_LIVE_CREDITS, isUnlimitedCredits } from "@shared/credits";
+import { getCreditWallet, countCreditsSpentThisMonth } from "./credits";
 import { getPlanCatalog, getTrialDays } from "./planCatalog";
 import type { LimitOverrides } from "@shared/adminTypes";
 import {
@@ -61,6 +63,10 @@ async function getEffectiveLimits(user: User, effectivePlanId: PlanId) {
     aiCallsPerMonth: overrides.aiCallsPerMonth ?? base.aiCallsPerMonth,
     pipelineItems: overrides.pipelineItems ?? base.pipelineItems,
     watchlistItems: overrides.watchlistItems ?? base.watchlistItems,
+    liveCreditsPerMonth:
+      overrides.liveCreditsPerMonth ??
+      base.liveCreditsPerMonth ??
+      PLAN_LIVE_CREDITS[effectivePlanId],
   };
 }
 
@@ -179,12 +185,14 @@ export async function buildSubscriptionInfo(user: User): Promise<SubscriptionInf
   const limits = await getEffectiveLimits(user, resolved.effectivePlanId);
   const monthStart = startOfMonth();
 
-  const [searchesThisMonth, aiCallsThisMonth, pipelineItems, watchlistItems] =
+  const [searchesThisMonth, aiCallsThisMonth, pipelineItems, watchlistItems, creditsUsedThisMonth, creditWallet] =
     await Promise.all([
       countUserEventsSince(user.id, "search_query", monthStart),
       countUserEventsSince(user.id, "ai_call", monthStart),
       countPipelineItems(user.id),
       countWatchlistItems(user.id),
+      countCreditsSpentThisMonth(user.id),
+      getCreditWallet(user),
     ]);
 
   const daysLeftInTrial =
@@ -209,6 +217,14 @@ export async function buildSubscriptionInfo(user: User): Promise<SubscriptionInf
       aiCallsThisMonth,
       pipelineItems,
       watchlistItems,
+      creditsUsedThisMonth,
+    },
+    credits: {
+      balance: creditWallet.balance,
+      monthlyAllowance: creditWallet.monthlyAllowance,
+      remaining: isUnlimitedCredits(creditWallet.monthlyAllowance)
+        ? null
+        : creditWallet.balance,
     },
     canStartTrial: !user.hasUsedTrial && !isAdmin(user),
   };

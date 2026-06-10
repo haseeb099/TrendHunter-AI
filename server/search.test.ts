@@ -125,7 +125,7 @@ describe("searchProducts orchestrator", () => {
     ]);
 
     const { searchProducts } = await import("./search/index");
-    const result = await searchProducts("charger", "ebay");
+    const result = await searchProducts("charger", "ebay", undefined, { live: true });
 
     expect(result.isDemo).toBe(false);
     expect(result.sources).toEqual(["ebay"]);
@@ -138,7 +138,7 @@ describe("searchProducts orchestrator", () => {
     vi.mocked(ebay.searchEbay).mockRejectedValue(new Error("API down"));
 
     const { searchProducts } = await import("./search/index");
-    const result = await searchProducts("headphones", "ebay");
+    const result = await searchProducts("headphones", "ebay", undefined, { live: true });
 
     expect(result.isDemo).toBe(true);
     expect(result.sources).toEqual(["mock"]);
@@ -162,7 +162,7 @@ describe("searchProducts orchestrator", () => {
     ]);
 
     const { searchProducts } = await import("./search/index");
-    const result = await searchProducts("makeup", "tiktok");
+    const result = await searchProducts("makeup", "tiktok", undefined, { live: true });
 
     expect(result.isDemo).toBe(false);
     expect(result.sources).toEqual(["tiktok"]);

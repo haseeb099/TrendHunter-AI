@@ -74,11 +74,32 @@ export type SearchProviderStatus = {
   note?: string;
 };
 
+export type DataMode = "cached" | "live" | "demo";
+
 export type ProductSearchResponse = {
   results: ProductSearchResult[];
   sources: SearchProviderId[];
   isDemo: boolean;
   warnings?: string[];
+  /** How results were served */
+  dataMode?: DataMode;
+  /** ISO timestamp when underlying data was fetched */
+  cachedAt?: string;
+  /** True when serving expired cache because live APIs were not called */
+  stale?: boolean;
+  /** Credits spent on this request (0 for cached) */
+  creditsUsed?: number;
+};
+
+export type ProductIntelligenceSummary = {
+  keyword: string;
+  region: RegionCode;
+  trendMomentum: number | null;
+  trendLabel: "rising" | "stable" | "declining" | null;
+  changePercent90d: number | null;
+  activeAdCount: number | null;
+  advertiserCount: number | null;
+  fetchedAt: string | null;
 };
 
 export const PRODUCT_CATEGORIES = [

@@ -9,6 +9,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { getDashboardPath } from "@/config/dashboardNav";
 import { trpc } from "@/lib/trpc";
 import { isUnlimited, type PlanId } from "@shared/plans";
+import { isUnlimitedCredits } from "@shared/credits";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
@@ -19,6 +20,7 @@ import {
   Settings,
   Sparkles,
   Ticket,
+  Zap,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
@@ -49,6 +51,15 @@ export default function Billing() {
   });
 
   const createCheckout = trpc.billing.createCheckoutSession.useMutation({
+    onSuccess: (data) => {
+      if (data.url) window.location.href = data.url;
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const creditPacksQuery = trpc.billing.getCreditPacks.useQuery();
+
+  const createCreditCheckout = trpc.billing.createCreditCheckoutSession.useMutation({
     onSuccess: (data) => {
       if (data.url) window.location.href = data.url;
     },
@@ -103,7 +114,21 @@ export default function Billing() {
       const next = `${window.location.pathname}${params.toString() ? `?${params}` : ""}`;
       window.history.replaceState({}, "", next);
     }
-  }, [utils.auth.me]);
+    if (params.get("credits") === "success") {
+      toast.success("Credits added to your wallet.");
+      void utils.auth.me.invalidate();
+      void utils.credits.getWallet.invalidate();
+      params.delete("credits");
+      const next = `${window.location.pathname}${params.toString() ? `?${params}` : ""}`;
+      window.history.replaceState({}, "", next);
+    }
+    if (params.get("credits") === "cancel") {
+      toast.message("Credit purchase cancelled");
+      params.delete("credits");
+      const next = `${window.location.pathname}${params.toString() ? `?${params}` : ""}`;
+      window.history.replaceState({}, "", next);
+    }
+  }, [utils.auth.me, utils.credits.getWallet]);
 
   if (plansQuery.isLoading) {
     return (
@@ -132,6 +157,12 @@ export default function Billing() {
   const aiUsed = subscription?.usage.aiCallsThisMonth ?? 0;
   const searchPct = searchLimit > 0 ? Math.min(100, (searchesUsed / searchLimit) * 100) : 0;
   const aiPct = aiLimit > 0 ? Math.min(100, (aiUsed / aiLimit) * 100) : 0;
+  const creditsAllowance = subscription?.credits.monthlyAllowance ?? 0;
+  const creditsUsed = subscription?.usage.creditsUsedThisMonth ?? 0;
+  const creditsPct =
+    !isUnlimitedCredits(creditsAllowance) && creditsAllowance > 0
+      ? Math.min(100, Math.round((creditsUsed / creditsAllowance) * 100))
+      : 0;
 
   const handleSelect = (planId: PlanId) => {
     if (planId === "trial") return;
@@ -292,7 +323,71 @@ export default function Billing() {
               limit={aiLimit}
               pct={aiPct}
             />
+            <UsageMeter
+              label="Live credits used"
+              used={creditsUsed}
+              limit={creditsAllowance}
+              pct={creditsPct}
+              unlimited={isUnlimitedCredits(creditsAllowance)}
+            />
+            <StatCard
+              label="Credits balance"
+              value={
+                isUnlimitedCredits(creditsAllowance)
+                  ? "Unlimited"
+                  : String(subscription?.credits.balance ?? 0)
+              }
+            />
           </div>
+          <p className="text-xs text-muted-foreground">
+            Cached Discover and trending are free. Live search, trends, and Ad Library scans use credits.
+          </p>
+
+          {creditPacksQuery.data?.stripeConfigured &&
+          (creditPacksQuery.data.packs.length > 0 || creditPacksQuery.data.catalog.length > 0) ? (
+            <div className="card-elevated p-5 space-y-4">
+              <div className="flex items-center gap-2">
+                <Zap className="w-4 h-4 text-warning" />
+                <h3 className="font-medium text-sm">Buy more live credits</h3>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                One-time top-ups never expire — they roll over each month on top of your plan allowance.
+              </p>
+              <div className="grid sm:grid-cols-3 gap-3">
+                {(creditPacksQuery.data.packs.length > 0
+                  ? creditPacksQuery.data.packs
+                  : creditPacksQuery.data.catalog
+                ).map((pack) => {
+                  const purchasable = creditPacksQuery.data.packs.some((p) => p.id === pack.id);
+                  return (
+                    <div
+                      key={pack.id}
+                      className="rounded-xl border border-border p-4 flex flex-col gap-3"
+                    >
+                      <div>
+                        <p className="font-semibold">{pack.label}</p>
+                        <p className="text-2xl font-display mt-1">{pack.priceLabel}</p>
+                        <p className="text-xs text-muted-foreground mt-2">{pack.description}</p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        className="mt-auto"
+                        disabled={!purchasable || createCreditCheckout.isPending}
+                        onClick={() =>
+                          createCreditCheckout.mutate({
+                            packId: pack.id as "pack_50" | "pack_100" | "pack_250",
+                          })
+                        }
+                      >
+                        {purchasable ? "Buy credits" : "Coming soon"}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
           <div className="grid sm:grid-cols-2 gap-4">
             <StatCard label="Pipeline items" value={String(subscription?.usage.pipelineItems ?? 0)} />
             <StatCard label="Watchlist items" value={String(subscription?.usage.watchlistItems ?? 0)} />
@@ -394,21 +489,24 @@ function UsageMeter({
   used,
   limit,
   pct,
+  unlimited,
 }: {
   label: string;
   used: number;
   limit: number;
   pct: number;
+  unlimited?: boolean;
 }) {
+  const showUnlimited = unlimited ?? isUnlimited(limit);
   return (
     <div className="card-elevated p-5 space-y-3">
       <div className="flex items-center justify-between text-sm">
         <span className="text-muted-foreground">{label}</span>
         <span className="tabular-nums font-medium">
-          {isUnlimited(limit) ? `${used} / ∞` : `${used} / ${limit}`}
+          {showUnlimited ? `${used} / ∞` : `${used} / ${limit}`}
         </span>
       </div>
-      {!isUnlimited(limit) ? <Progress value={pct} className="h-2" /> : null}
+      {!showUnlimited && limit > 0 ? <Progress value={pct} className="h-2" /> : null}
     </div>
   );
 }

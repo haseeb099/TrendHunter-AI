@@ -13,6 +13,8 @@ vi.mock("./stripe", async () => {
     getStripeClient: vi.fn(),
     getOrCreateStripeCustomer: vi.fn(),
     requireStripePriceId: vi.fn(),
+    requireStripeCreditPackPriceId: vi.fn(() => "price_credits_100"),
+    listConfiguredCreditPacks: vi.fn(() => []),
     billingReturnUrl: vi.fn(() => "http://localhost:3000/dashboard/billing"),
   };
 });
@@ -67,6 +69,31 @@ describe("billing router", () => {
     const caller = appRouter.createCaller(createTestContext());
 
     await expect(caller.billing.selectPlan({ planId: "pro" })).rejects.toThrow(TRPCError);
+  });
+
+  it("createCreditCheckoutSession requires Stripe", async () => {
+    const caller = appRouter.createCaller(createTestContext());
+    await expect(
+      caller.billing.createCreditCheckoutSession({ packId: "pack_100" })
+    ).rejects.toThrow(TRPCError);
+  });
+
+  it("createCreditCheckoutSession returns checkout url when Stripe is on", async () => {
+    vi.mocked(stripeModule.isStripeConfigured).mockReturnValue(true);
+    vi.mocked(stripeModule.getStripeClient).mockReturnValue({
+      checkout: {
+        sessions: {
+          create: vi.fn(async () => ({ url: "https://checkout.stripe.test/session" })),
+        },
+      },
+    } as never);
+    vi.mocked(stripeModule.getOrCreateStripeCustomer).mockResolvedValue("cus_test");
+
+    const caller = appRouter.createCaller(createTestContext());
+    const result = await caller.billing.createCreditCheckoutSession({ packId: "pack_100" });
+
+    expect(result.url).toContain("checkout.stripe.test");
+    expect(result.credits).toBe(100);
   });
 
   it("selectPlan is blocked when self-serve billing is off", async () => {

@@ -14,11 +14,13 @@ import AdminPlansTab from "./pages/admin/AdminPlansTab";
 import AdminCouponsTab from "./pages/admin/AdminCouponsTab";
 import AdminSettingsTab from "./pages/admin/AdminSettingsTab";
 import AdminLayout from "./components/AdminLayout";
+import TrendsPublic from "./pages/TrendsPublic";
 
 function Router() {
   return (
     <Switch>
       <Route path={"/"} component={Home} />
+      <Route path={"/trends/:slug"} component={TrendsPublic} />
       <Route path={"/login"} component={Login} />
       <Route path={"/register"} component={Register} />
       <Route path={"/dashboard/:tab?"} component={Dashboard} />

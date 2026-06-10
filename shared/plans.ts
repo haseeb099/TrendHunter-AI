@@ -40,6 +40,8 @@ export type PlanLimits = {
   pipelineItems: number;
   watchlistItems: number;
   aiCallsPerMonth: number;
+  /** Live API credits per month (cached reads are free) */
+  liveCreditsPerMonth: number;
 };
 
 export type PlanDefinition = {
@@ -103,6 +105,7 @@ export const PLAN_DEFINITIONS: Record<PlanId, PlanDefinition> = {
       pipelineItems: 100,
       watchlistItems: 200,
       aiCallsPerMonth: 200,
+      liveCreditsPerMonth: 50,
     },
     sortOrder: 0,
   },
@@ -126,6 +129,7 @@ export const PLAN_DEFINITIONS: Record<PlanId, PlanDefinition> = {
       pipelineItems: 15,
       watchlistItems: 50,
       aiCallsPerMonth: 0,
+      liveCreditsPerMonth: 0,
     },
     sortOrder: 1,
   },
@@ -152,6 +156,7 @@ export const PLAN_DEFINITIONS: Record<PlanId, PlanDefinition> = {
       pipelineItems: 100,
       watchlistItems: 200,
       aiCallsPerMonth: 300,
+      liveCreditsPerMonth: 100,
     },
     sortOrder: 2,
   },
@@ -175,6 +180,7 @@ export const PLAN_DEFINITIONS: Record<PlanId, PlanDefinition> = {
       pipelineItems: 500,
       watchlistItems: 1000,
       aiCallsPerMonth: 1000,
+      liveCreditsPerMonth: 400,
     },
     sortOrder: 3,
   },
@@ -187,10 +193,10 @@ export const PLAN_DEFINITIONS: Record<PlanId, PlanDefinition> = {
     billingPeriod: "per month",
     features: [
       "Everything in Business",
-      "Unlimited searches",
+      "Unlimited searches & live credits",
       "Unlimited pipeline & watchlist",
-      "Multi-client workspaces",
-      "White-label export ready",
+      "Dedicated onboarding support",
+      "Custom usage reporting",
     ],
     featureIds: AGENCY_FEATURES,
     limits: {
@@ -198,6 +204,7 @@ export const PLAN_DEFINITIONS: Record<PlanId, PlanDefinition> = {
       pipelineItems: -1,
       watchlistItems: -1,
       aiCallsPerMonth: -1,
+      liveCreditsPerMonth: -1,
     },
     sortOrder: 4,
   },
@@ -219,6 +226,10 @@ export const PLAN_RANK: Record<PlanId, number> = {
 
 export type DashboardTabId =
   | "search"
+  | "intel"
+  | "trendpulse"
+  | "adradar"
+  | "tiktokradar"
   | "validate"
   | "competitors"
   | "profit"
@@ -240,6 +251,10 @@ export const TAB_REQUIRED_FEATURE: Record<
   FeatureId
 > = {
   search: "discover",
+  intel: "discover",
+  trendpulse: "discover",
+  adradar: "discover",
+  tiktokradar: "discover",
   validate: "validate",
   competitors: "competitors",
   marketgap: "marketgap",
@@ -269,6 +284,12 @@ export type SubscriptionInfo = {
     aiCallsThisMonth: number;
     pipelineItems: number;
     watchlistItems: number;
+    creditsUsedThisMonth: number;
+  };
+  credits: {
+    balance: number;
+    monthlyAllowance: number;
+    remaining: number | null;
   };
   canStartTrial: boolean;
 };

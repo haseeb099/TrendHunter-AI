@@ -2,15 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("./db", () => ({
   getValidTrendingSnapshot: vi.fn(async () => null),
+  getStaleTrendingSnapshot: vi.fn(async () => null),
   upsertTrendingSnapshot: vi.fn(async () => undefined),
-}));
-
-vi.mock("./search/index", () => ({
-  searchProducts: vi.fn(async () => ({
-    results: [],
-    sources: [],
-    isDemo: true,
-  })),
 }));
 
 describe("getTrendingFeed", () => {

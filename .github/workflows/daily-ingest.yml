@@ -1,0 +1,49 @@
+name: Daily Data Ingest
+
+on:
+  schedule:
+    # 04:00 UTC daily
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run daily ingest
+        run: pnpm ingest:daily
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
+          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
+          EBAY_ENV: ${{ secrets.EBAY_ENV }}
+          CJ_API_KEY: ${{ secrets.CJ_API_KEY }}
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          APP_URL: ${{ secrets.APP_URL }}
+          FREE_RETAIL_ENABLED: "true"
+          TRENDING_CACHE_TTL_HOURS: "24"
+          SERPAPI_DAILY_CAP: "3"
+          META_ADS_DAILY_CAP: "10"
+          SEARCHAPI_KEY: ${{ secrets.SEARCHAPI_KEY }}
+          INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
+          TIKTOK_ADS_DAILY_CAP: "10"

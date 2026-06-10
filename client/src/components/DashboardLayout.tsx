@@ -36,6 +36,7 @@ import { usePlan } from "@/_core/hooks/usePlan";
 import { ALWAYS_ACCESSIBLE_TABS } from "@shared/plans";
 import { toast } from "sonner";
 import { CreditCard, Lock, LogOut, Settings, Shield } from "lucide-react";
+import { CreditBalance } from "@/components/CreditBalance";
 import { Link } from "wouter";
 import { CSSProperties } from "react";
 import { useLocation } from "wouter";
@@ -127,7 +128,7 @@ export default function DashboardLayout({
 function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const [location, setLocation] = useLocation();
-  const { state } = useSidebar();
+  const { state, setOpenMobile, isMobile: sidebarIsMobile } = useSidebar();
   const isCollapsed = state === "collapsed";
   const activeTab = getActiveTab(location);
   const activeMenuItem = dashboardNavGroups
@@ -190,6 +191,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                               return;
                             }
                             setLocation(path);
+                            if (sidebarIsMobile) setOpenMobile(false);
                           }}
                           tooltip={`${item.label} — ${item.description}${locked ? " (upgrade required)" : ""}`}
                           className={`h-9 rounded-lg px-2.5 text-[13px] text-sidebar-foreground ${isActive ? "nav-active" : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"} ${locked ? "opacity-70" : ""}`}
@@ -297,6 +299,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
               <span className="text-warning tabular-nums">· {daysLeftInTrial}d</span>
             ) : null}
           </button>
+          <CreditBalance />
           <WorkspaceQuickStats enabled={quickStatsEnabled} />
           <ThemeToggle />
         </header>

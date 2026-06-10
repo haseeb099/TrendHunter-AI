@@ -2,8 +2,9 @@ import type { ProductOffer, RegionCode } from "@shared/searchTypes";
 import { isCjApiConfigured, searchCjOffers } from "./cj";
 import { isAliExpressApiConfigured, searchAliExpressOffers } from "./aliexpress";
 import { cacheProductOffers, getCachedProductOffers } from "../db";
+import { ENV } from "../_core/env";
 
-const OFFERS_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const OFFERS_CACHE_TTL_MS = ENV.offersCacheTtlHours * 60 * 60 * 1000;
 
 export type OffersStatus = {
   cj: { configured: boolean; mode: "live" | "demo" };

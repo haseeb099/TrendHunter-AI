@@ -12,6 +12,114 @@ Phased delivery plan for production hardening. Each sprint is independently ship
 | **S4** | Stripe checkout + webhooks | Done |
 | **S5** | Discount coupons + billing tests | Done |
 | **S6** | Pipeline kanban drag-and-drop | Done |
+| **S7** | Data platform: credits, cache-first search, daily ingest | Done |
+| **S8** | Google Trends + Meta Ad Library + Social Kit 2.0 | Done |
+| **S9** | Public trend pages + SEO / llms.txt | Done |
+| **S10** | Polish: bugs, UI/UX, security, credits UX | Done |
+| **S11** | Intelligence hub + Social Kit save/load + full kit | Done |
+| **S12** | Intel Center sidebar + digest pages + UX polish | Done |
+| **S13** | Category filters, keyword watches, email digest | Done |
+
+---
+
+## Sprint 13 — Alerts & category filters
+
+**Goal:** Filter intel by category; notify users when keywords flip to rising; daily email digest.
+
+**Deliverables:**
+- Category chips on Intel Center (filters digest + trending products)
+- `intel_keyword_watches` + rising alert emails (Resend) + in-app `intel_alert` events
+- `intel_digest_prefs` + daily digest email after ingest
+- `pnpm intel:alerts` script (also runs at end of daily ingest)
+
+**Env:** `RESEND_API_KEY`, `EMAIL_FROM`, `INTEL_DIGEST_ENABLED`
+
+---
+
+## Sprint 12 — Market Intelligence Center (sidebar)
+
+**Goal:** Centralize Google Trends, Meta Ads, and trending digest in dedicated left-nav pages — no external sites.
+
+**Deliverables:**
+- Sidebar group **Market Intelligence**: Intel Center, Google Trends, Meta Ad Library
+- `getMarketDigest` API — rising keywords, meta hot, opportunities by region
+- `IntelligenceVerdict` — plain-language opportunity readout
+- Improved product drawer Intel tab with summary metrics + deep links
+
+---
+
+## Sprint 11 — Intelligence hub & Social Kit 2.1
+
+**Goal:** Rich product intelligence panel; transparent LLM/credit limits; save/load social kits.
+
+**Deliverables:**
+- `ProductIntelligenceHub` — Overview, Google Trends, Meta Ads, TikTok angles (drawer + Social Kit page)
+- `saved_social_kits` table + save/list/load/delete tRPC
+- `generateFullKit` — one AI call for complete kit
+- `SocialKitUsageBar` — AI quota, credits, saved kit limits
+- Plan-based saved kit caps (Pro 30, Business 100, Agency unlimited)
+
+**Social Kit metering:**
+- Each individual generator = **1 AI call** (monthly quota per plan)
+- **Full kit** = **1 AI call** total (recommended)
+- Optional **live trends** = **1 credit** (hashtags / full kit with live toggle)
+- Cached trend/ad reads are **free**
+
+---
+
+## Sprint 10 — Polish & hardening
+
+**Goal:** Fix Sprint 7–9 rough edges; tighten public endpoints; improve credits and validation UX.
+
+**Deliverables:**
+- Public `/trends/:slug` uses `getPublicTrend` + `PublicTrendDisplay` (no auth)
+- Live refresh fixes for Trend Pulse / Ad Radar (`utils.*.fetch` + wallet invalidation)
+- Validation panel handles enriched API response + market context badges
+- Keyword sanitization + rate limit on `getPublicTrend`
+- `POST /api/ingest/daily` with `INGEST_SECRET` for manual ingest triggers
+- Credits balance invalidation after live search; Billing unlimited credits display
+- Data freshness badges on Home + Discover; intelligence shortcut on product cards
+- `system.getConfig.dataPlatform` status block
+- Tests: `shared/credits.test.ts`, `shared/keywordUtils.test.ts`, rate-limit regression
+
+**Exit criteria:** `pnpm test` + `pnpm check` pass; public trends work without login.
+
+---
+
+## Sprint 7 — Data platform (credits + cache + ingest)
+
+**Goal:** Users read cached DB data by default; live APIs cost credits; daily GitHub Actions ingest.
+
+**Deliverables:**
+- Credit wallet (`user_credits`, `credit_transactions`) per plan
+- Cache-first `searchProducts` + `search_snapshots` + `catalog_products`
+- `scripts/ingest-daily.ts` + `.github/workflows/daily-ingest.yml`
+- Trending feed DB-only on page load
+
+**Env:** `TRENDING_CACHE_TTL_HOURS=24`, `SERPAPI_DAILY_CAP`, `META_ADS_DAILY_CAP`, `META_ACCESS_TOKEN`
+
+---
+
+## Sprint 8 — Intelligence layer
+
+**Goal:** Google Trends Trend Pulse + Meta Ad Radar in Discover, Validate, Competitors, Social Kit.
+
+**Deliverables:**
+- `trend_signals`, `ad_library_snapshots` tables
+- `intelligence` tRPC router
+- Trend Pulse + Ad Radar UI components
+- Social Kit: hooks, 7-day calendar, SEO block
+
+---
+
+## Sprint 9 — SEO & public trends
+
+**Goal:** Indexable public trend pages for search engines and LLM discovery.
+
+**Deliverables:**
+- `/trends/:slug` public page
+- `client/public/llms.txt`, `robots.txt`
+- Enhanced meta tags in `index.html`
 
 ---
 
@@ -109,3 +217,42 @@ Phased delivery plan for production hardening. Each sprint is independently ship
 5. For local webhooks: `stripe listen --forward-to localhost:3000/api/webhooks/stripe`
 
 **Beta without Stripe:** Self-serve ON + Stripe unset = manual `selectPlan` (admin/coupon upgrades only).
+
+---
+
+## Sprint 14 — Robustness & security hardening
+
+**Goal:** Fix credit/billing race conditions, close maintenance bypass, tighten public API limits, polish intel UX.
+
+**Deliverables:**
+- Charge credits **after** successful live search / trends / validation / competitor / social fetches
+- Atomic credit debit (`balance >= cost` in SQL `WHERE`)
+- `protectedBase` enforces maintenance mode (search, AI, pipeline)
+- Rate limit on public `trending.getFeed` (120 req/min/IP)
+- Reduce global JSON body limit to 2MB
+- `saveKit` gated on `social` plan + 500KB payload cap
+- Error boundary hides stack traces in production
+- Intel Center opens `ProductDetailDrawer` on product cards
+- Mobile sidebar closes on nav; drawer tabs 3-col on small screens
+- Competitor Spy auto-analyzes `?keyword=` deep links
+- Intel pages show query error alerts
+- `DashboardTabId` consolidated to `@shared/plans`
+- `.env.example` cleanup; remove broken `sitemap.xml` from `robots.txt`
+
+**Exit criteria:** `pnpm check` + `pnpm test` pass; credits not charged on failed live fetches; maintenance blocks workspace APIs.
+
+---
+
+## Sprint 15 — Scale, SEO, TikTok intel, guest UX
+
+**Goal:** Production-scale rate limits, SEO sitemap, Social Kit AI cache, TikTok Ad Library, guest-safe product drawer.
+
+**Deliverables:**
+- Redis-backed rate limiting (`REDIS_URL`) with in-memory fallback
+- Dynamic `/sitemap.xml` from cached trend keywords + `robots.txt` restored
+- `ai_output_cache` wired to all Social Kit LLM mutations (7-day TTL)
+- TikTok Ad Library via `SEARCHAPI_KEY` + ScrapeCreators organic fallback
+- `tiktok_ads_snapshots` table + ingest + `getTikTokRadar` API
+- Guest home drawer uses `getPublicTrend` (no auth-only APIs)
+
+**Exit criteria:** `pnpm check` + `pnpm test` pass; `pnpm db:migrate` through `0012`.

@@ -16,6 +16,8 @@ import { Alert } from "@/components/ui/alert";
 import { ProductValidationPanel } from "@/components/product-workspace/ProductValidationPanel";
 import { ProductProfitPanel } from "@/components/product-workspace/ProductProfitPanel";
 import { ProductCompetitorPanel } from "@/components/product-workspace/ProductCompetitorPanel";
+import { ProductIntelligenceHub } from "@/components/intelligence/ProductIntelligenceHub";
+import { PublicProductIntelligence } from "@/components/intelligence/PublicProductIntelligence";
 import type { ProductDrawerTab, ProductValidationResult } from "@/components/product-workspace/types";
 import {
   Calculator,
@@ -31,7 +33,10 @@ import {
   TrendingUp,
   Truck,
   Zap,
+  MessageSquare,
 } from "lucide-react";
+import { Link } from "wouter";
+import { getDashboardPath } from "@/config/dashboardNav";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { usePlan } from "@/_core/hooks/usePlan";
@@ -56,6 +61,8 @@ type ProductDetailDrawerProps = {
   }) => void;
   pipelinePending?: boolean;
   savePending?: boolean;
+  /** Guest / logged-out mode — public intel only, no protected APIs */
+  guestMode?: boolean;
 };
 
 export function ProductDetailDrawer({
@@ -68,14 +75,16 @@ export function ProductDetailDrawer({
   onPipelineWithValidation,
   pipelinePending,
   savePending,
+  guestMode = false,
 }: ProductDetailDrawerProps) {
   const [activeTab, setActiveTab] = useState<ProductDrawerTab>(initialTab);
   const [pipelineAdded, setPipelineAdded] = useState(false);
   const [savedToWatchlist, setSavedToWatchlist] = useState(false);
   const { canAccess } = usePlan();
-  const canValidate = canAccess("validate");
-  const canSpy = canAccess("competitors");
-  const canOffers = canAccess("supplier_offers");
+  const canValidate = !guestMode && canAccess("validate");
+  const canSpy = !guestMode && canAccess("competitors");
+  const canOffers = !guestMode && canAccess("supplier_offers");
+  const canSocial = !guestMode && canAccess("social");
 
   const offersQuery = trpc.supplier.getOffersForProduct.useQuery(
     {
@@ -83,7 +92,7 @@ export function ProductDetailDrawer({
       title: product?.title ?? "",
       region: product?.region,
     },
-    { enabled: open && Boolean(product?.title) && canOffers }
+    { enabled: open && Boolean(product?.title) && canOffers && !guestMode }
   );
 
   useEffect(() => {
@@ -204,30 +213,43 @@ export function ProductDetailDrawer({
           className="flex flex-col flex-1 min-h-0"
         >
           <div className="side-panel-tabs shrink-0 !px-4 !py-2">
-            <TabsList className="w-full h-auto p-1 bg-transparent grid grid-cols-5 gap-1 border-0 shadow-none">
+            <TabsList
+              className={cn(
+                "w-full h-auto p-1 bg-transparent grid gap-1 border-0 shadow-none",
+                guestMode ? "grid-cols-2" : "grid-cols-3 sm:grid-cols-6"
+              )}
+            >
               <TabsTrigger value="overview" className={drawerTabClass}>
                 Overview
               </TabsTrigger>
-              <TabsTrigger value="suppliers" disabled={!canOffers} className={drawerTabClass}>
-                Suppliers
-                {!canOffers ? <Lock className="w-3 h-3 opacity-60" /> : null}
-              </TabsTrigger>
-              <TabsTrigger
-                value="validate"
-                disabled={!canValidate}
-                className={cn(drawerTabClass, "gap-1")}
-              >
-                <Zap className="w-3 h-3 hidden sm:inline" />
-                Validate
-                {!canValidate ? <Lock className="w-3 h-3 opacity-60" /> : null}
-              </TabsTrigger>
-              <TabsTrigger value="profit" className={cn(drawerTabClass, "gap-1")}>
-                <Calculator className="w-3 h-3 hidden sm:inline" />
-                Profit
-              </TabsTrigger>
-              <TabsTrigger value="competitors" disabled={!canSpy} className={drawerTabClass}>
-                Spy
-                {!canSpy ? <Lock className="w-3 h-3 opacity-60" /> : null}
+              {!guestMode ? (
+                <>
+                  <TabsTrigger value="suppliers" disabled={!canOffers} className={drawerTabClass}>
+                    Suppliers
+                    {!canOffers ? <Lock className="w-3 h-3 opacity-60" /> : null}
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="validate"
+                    disabled={!canValidate}
+                    className={cn(drawerTabClass, "gap-1")}
+                  >
+                    <Zap className="w-3 h-3 hidden sm:inline" />
+                    Validate
+                    {!canValidate ? <Lock className="w-3 h-3 opacity-60" /> : null}
+                  </TabsTrigger>
+                  <TabsTrigger value="profit" className={cn(drawerTabClass, "gap-1")}>
+                    <Calculator className="w-3 h-3 hidden sm:inline" />
+                    Profit
+                  </TabsTrigger>
+                  <TabsTrigger value="competitors" disabled={!canSpy} className={drawerTabClass}>
+                    Spy
+                    {!canSpy ? <Lock className="w-3 h-3 opacity-60" /> : null}
+                  </TabsTrigger>
+                </>
+              ) : null}
+              <TabsTrigger value="intelligence" className={cn(drawerTabClass, "gap-1")}>
+                <TrendingUp className="w-3 h-3 hidden sm:inline" />
+                Intel
               </TabsTrigger>
             </TabsList>
           </div>
@@ -445,6 +467,33 @@ export function ProductDetailDrawer({
               ) : (
                 <PlanFeatureGate feature="competitors" />
               )}
+            </TabsContent>
+
+            <TabsContent value="intelligence" className="mt-0 space-y-4">
+              {guestMode ? (
+                <PublicProductIntelligence
+                  keyword={product.title}
+                  region={product.region ?? "US"}
+                />
+              ) : (
+                <ProductIntelligenceHub
+                  keyword={product.title}
+                  region={product.region ?? "US"}
+                  productId={product.id}
+                  compact
+                  showDeepLinks
+                />
+              )}
+              {canSocial ? (
+                <Link
+                  href={`${getDashboardPath("social")}?productTitle=${encodeURIComponent(product.title)}&region=${product.region ?? "US"}&productId=${encodeURIComponent(product.id)}`}
+                >
+                  <Button size="sm" variant="secondary" className="w-full">
+                    <MessageSquare className="w-3.5 h-3.5 mr-2" />
+                    Open Social Media Kit
+                  </Button>
+                </Link>
+              ) : null}
             </TabsContent>
           </div>
         </Tabs>

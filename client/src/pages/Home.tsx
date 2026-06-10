@@ -30,12 +30,18 @@ import {
 } from "lucide-react";
 import { Link } from "wouter";
 import { PUBLIC_PLANS } from "@shared/plans";
+import { DataFreshnessBadge } from "@/components/intelligence/DataFreshnessBadge";
 
 const features = [
   {
     icon: Search,
     title: "Unified marketplace search",
     desc: "One query across eBay, Amazon, retail, and TikTok Shop with shared filters.",
+  },
+  {
+    icon: LineChart,
+    title: "Market intelligence hub",
+    desc: "Google Trends, Meta Ad Library, and TikTok ads in one workspace — cached daily, live on demand.",
   },
   {
     icon: Zap,
@@ -187,7 +193,8 @@ function TrendingSection({ isAuthenticated }: { isAuthenticated: boolean }) {
           <p className="eyebrow mb-3">Trending now</p>
           <h2 className="section-title mb-3">What&apos;s hot across marketplaces</h2>
           <p className="text-muted-foreground">
-            Region-aware trending products — sign in to save and add to your pipeline.
+            Region-aware trending products — sign in to save and add to your pipeline. Use the trend
+            icon on any card for a free public SEO trend report.
           </p>
         </div>
 
@@ -202,11 +209,18 @@ function TrendingSection({ isAuthenticated }: { isAuthenticated: boolean }) {
               {r.label}
             </Button>
           ))}
-          {trendingQuery.data?.isDemo ? (
-            <Badge variant="outline" className="ml-auto self-center">
-              Demo data
-            </Badge>
-          ) : null}
+          <div className="ml-auto flex items-center gap-2 flex-wrap">
+            {trendingQuery.data && !trendingQuery.isLoading ? (
+              <DataFreshnessBadge
+                dataMode={trendingQuery.data.dataMode ?? (trendingQuery.data.isDemo ? "demo" : "cached")}
+                cachedAt={trendingQuery.data.cachedAt}
+                stale={trendingQuery.data.stale}
+              />
+            ) : null}
+            {trendingQuery.data?.isDemo ? (
+              <Badge variant="outline">Demo data</Badge>
+            ) : null}
+          </div>
         </div>
 
         {categoriesQuery.data?.categories && categoriesQuery.data.categories.length > 0 ? (
@@ -267,6 +281,7 @@ function TrendingSection({ isAuthenticated }: { isAuthenticated: boolean }) {
         open={Boolean(detailProduct)}
         onOpenChange={(open) => !open && setDetailProduct(null)}
         initialTab={drawerTab}
+        guestMode={!isAuthenticated}
         onAddToPipeline={isAuthenticated ? handlePipeline : undefined}
         onAddToWatchlist={isAuthenticated ? handleSave : undefined}
         pipelinePending={addToPipeline.isPending}

@@ -23,7 +23,9 @@ import { ProductDetailDrawer } from "@/components/ProductDetailDrawer";
 import type { ProductDrawerTab } from "@/components/product-workspace/types";
 import type { ProductValidationResult } from "@/components/product-workspace/types";
 import { SearchFilterDrawer } from "@/components/SearchFilterDrawer";
-import { Search, Filter, Info, Sparkles, Compass } from "lucide-react";
+import { Search, Filter, Info, Sparkles, Compass, Zap } from "lucide-react";
+import { DataFreshnessBadge } from "@/components/intelligence/DataFreshnessBadge";
+import { Switch } from "@/components/ui/switch";
 import { trpc } from "@/lib/trpc";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
@@ -47,6 +49,7 @@ export default function ProductSearch() {
   });
   const [detailProduct, setDetailProduct] = useState<ProductSearchResult | null>(null);
   const [drawerTab, setDrawerTab] = useState<ProductDrawerTab>("overview");
+  const [liveSearch, setLiveSearch] = useState(false);
 
   const openProductDrawer = (product: ProductSearchResult, tab: ProductDrawerTab = "overview") => {
     setDetailProduct(product);
@@ -124,9 +127,16 @@ export default function ProductSearch() {
       query: submittedQuery,
       platform,
       filters: mergedFilters,
+      live: liveSearch,
     },
     { enabled: activeTab === "search" && submittedQuery.length > 0, retry: false }
   );
+
+  useEffect(() => {
+    if (searchQuery.data?.creditsUsed && searchQuery.data.creditsUsed > 0) {
+      void utils.credits.getWallet.invalidate();
+    }
+  }, [searchQuery.data?.creditsUsed, searchQuery.dataUpdatedAt, utils.credits.getWallet]);
 
   const addToWatchlist = trpc.watchlist.addToWatchlist.useMutation({
     onSuccess: async () => {
@@ -326,6 +336,15 @@ export default function ProductSearch() {
         </TabsList>
 
         <TabsContent value="discover" className="space-y-6 mt-6">
+          {trendingQuery.data && !trendingQuery.isFetching ? (
+            <div className="flex justify-end">
+              <DataFreshnessBadge
+                dataMode={trendingQuery.data.dataMode ?? (trendingQuery.data.isDemo ? "demo" : "cached")}
+                cachedAt={trendingQuery.data.cachedAt}
+                stale={trendingQuery.data.stale}
+              />
+            </div>
+          ) : null}
           {categoriesQuery.data?.categories && categoriesQuery.data.categories.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               <Button
@@ -409,6 +428,17 @@ export default function ProductSearch() {
                 >
                   Save search
                 </Button>
+                <div className="flex items-center gap-2 shrink-0 rounded-lg border border-border px-3 h-11 bg-card">
+                  <Switch
+                    id="live-search"
+                    checked={liveSearch}
+                    onCheckedChange={setLiveSearch}
+                  />
+                  <Label htmlFor="live-search" className="text-xs cursor-pointer flex items-center gap-1">
+                    <Zap className="w-3.5 h-3.5" />
+                    Live (1 credit)
+                  </Label>
+                </div>
                 <Button
                   type="submit"
                   disabled={searchQuery.isFetching}
@@ -553,16 +583,20 @@ export default function ProductSearch() {
             <h2 className="font-display text-xl font-semibold">
               {activeData.results.length} result{activeData.results.length !== 1 ? "s" : ""}
             </h2>
-            <div className="flex gap-2 flex-wrap">
-              {activeData.isDemo ? (
-                <Badge variant="outline">Demo data</Badge>
-              ) : (
-                activeData.sources.map((source) => (
-                  <Badge key={source} variant="outline" className="text-success">
-                    Live: {source}
-                  </Badge>
-                ))
-              )}
+            <div className="flex gap-2 flex-wrap items-center">
+              <DataFreshnessBadge
+                dataMode={activeData.dataMode ?? (activeData.isDemo ? "demo" : "cached")}
+                cachedAt={activeData.cachedAt}
+                stale={activeData.stale}
+                creditsUsed={activeData.creditsUsed}
+              />
+              {!activeData.isDemo && activeData.sources.length > 0
+                ? activeData.sources.map((source) => (
+                    <Badge key={source} variant="outline" className="text-[10px] capitalize">
+                      {source.replace("_", " ")}
+                    </Badge>
+                  ))
+                : null}
             </div>
           </div>
 

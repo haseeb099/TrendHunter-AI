@@ -1,4 +1,4 @@
-import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { COOKIE_NAME, SESSION_MAX_AGE_MS } from "@shared/const";
 import { parse as parseCookieHeader } from "cookie";
 import type { Request, Response } from "express";
 import { SignJWT, jwtVerify } from "jose";
@@ -22,7 +22,7 @@ function getSessionSecret() {
 export async function createSessionToken(
   openId: string,
   name: string,
-  expiresInMs = ONE_YEAR_MS
+  expiresInMs = SESSION_MAX_AGE_MS
 ): Promise<string> {
   const issuedAt = Date.now();
   const expirationSeconds = Math.floor((issuedAt + expiresInMs) / 1000);
@@ -52,7 +52,7 @@ export async function verifySessionToken(
 
 export function setSessionCookie(req: Request, res: Response, token: string) {
   const cookieOptions = getSessionCookieOptions(req);
-  res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+  res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: SESSION_MAX_AGE_MS });
 }
 
 export async function authenticateRequest(req: Request): Promise<User | null> {

@@ -1,0 +1,40 @@
+# DropHunter AI
+
+> DropHunter AI is a dropshipping product research platform. It helps sellers discover trending products, validate demand with Google Trends data, analyze Meta Ad Library competitors, calculate profit, vet suppliers (CJ Dropshipping, AliExpress), and manage a product pipeline.
+
+## Product
+
+- Name: DropHunter AI (TrendHunter)
+- Category: E-commerce / dropshipping product research SaaS
+- URL: https://drophunter.ai (update with your production domain)
+
+## Key features
+
+- Multi-marketplace Discover search (cached daily from free catalogs + optional live APIs)
+- Google Trends Trend Pulse (demand momentum, rising queries)
+- Meta Ad Library Ad Radar (active ads, advertiser count, creative hooks)
+- AI product validation, competitor intelligence, market gap finder
+- Social media kit (hashtags, hooks, ad copy, content calendar)
+- Supplier offers and profit calculator
+- Subscription plans: Trial, Starter, Pro, Business, Agency
+- Live API credits per plan; cached data is free
+
+## Public pages
+
+- / — Landing page with pricing
+- /trends/{keyword-slug} — Public trend reports (SEO)
+- /register — Sign up
+- /login — Sign in
+
+## Data sources
+
+- DummyJSON, FakeStore (free catalogs)
+- Google Trends via SerpAPI (optional)
+- Meta Ad Library API (optional)
+- eBay Browse, SerpAPI Amazon/Google Shopping (optional, live credits)
+- CJ Dropshipping, AliExpress (suppliers)
+- Groq / OpenAI (AI features)
+
+## Contact
+
+See in-app billing and account settings for support.

@@ -1,4 +1,5 @@
 import { ENV, isAiConfigured, isCjConfigured, isAliExpressConfigured } from "./env";
+import { isRedisConfigured } from "./redis";
 import { isEbayConfigured } from "../search/ebay";
 import { isSerpApiConfigured } from "../search/serpapi";
 import { isTikTokConfigured } from "../search/tiktok";
@@ -45,6 +46,11 @@ export function validateEnvOnStartup(): void {
   }
   if (ENV.isProduction && !ENV.s3Bucket) {
     warnings.push("S3_BUCKET not set — uploads use local disk (not ideal for production)");
+  }
+  if (ENV.isProduction && !isRedisConfigured()) {
+    warnings.push(
+      "REDIS_URL not set — rate limits are per-instance only (set Upstash Redis for multi-instance deploys)"
+    );
   }
 
   for (const msg of warnings) {

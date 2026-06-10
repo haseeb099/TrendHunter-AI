@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Allow: /trends/
+Disallow: /dashboard/
+Disallow: /admin/
+Disallow: /api/
+
+Sitemap: /sitemap.xml

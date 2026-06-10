@@ -26,7 +26,10 @@ function rowToPlan(row: typeof planConfigs.$inferSelect): PlanDefinition {
     highlight: row.highlight,
     features: (row.features as string[]) ?? [],
     featureIds: (row.featureIds as FeatureId[]) ?? [],
-    limits: row.limits as PlanLimits,
+    limits: {
+      ...PLAN_DEFINITIONS[row.planId as PlanId].limits,
+      ...(row.limits as PlanLimits),
+    },
     sortOrder: row.sortOrder,
   };
 }

@@ -14,6 +14,10 @@ import ProductPipeline from "./ProductPipeline";
 import Watchlist from "./Watchlist";
 import Billing from "./Billing";
 import AccountSettings from "./AccountSettings";
+import IntelligenceCenter from "./IntelligenceCenter";
+import TrendPulsePage from "./TrendPulsePage";
+import AdRadarPage from "./AdRadarPage";
+import TikTokRadarPage from "./TikTokRadarPage";
 import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { getActiveTab, getDashboardPath, type DashboardTabId } from "@/config/dashboardNav";
@@ -70,6 +74,14 @@ export default function Dashboard() {
     switch (activeTab) {
       case "search":
         return <ProductSearch />;
+      case "intel":
+        return <IntelligenceCenter />;
+      case "trendpulse":
+        return <TrendPulsePage />;
+      case "adradar":
+        return <AdRadarPage />;
+      case "tiktokradar":
+        return <TikTokRadarPage />;
       case "validate":
         return <ProductValidation />;
       case "competitors":

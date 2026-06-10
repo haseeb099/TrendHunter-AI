@@ -313,3 +313,198 @@ export const stripeWebhookEvents = mysqlTable("stripe_webhook_events", {
 });
 
 export type StripeWebhookEvent = typeof stripeWebhookEvents.$inferSelect;
+
+// Normalized product catalog (daily ingest from free sources)
+export const catalogProducts = mysqlTable("catalog_products", {
+  id: int("id").autoincrement().primaryKey(),
+  externalId: varchar("externalId", { length: 255 }).notNull(),
+  source: varchar("source", { length: 64 }).notNull(),
+  title: text("title").notNull(),
+  price: float("price").notNull(),
+  platform: varchar("platform", { length: 64 }).notNull(),
+  image: text("image"),
+  rating: float("rating"),
+  category: varchar("category", { length: 64 }),
+  region: varchar("region", { length: 16 }),
+  currency: varchar("currency", { length: 8 }).default("USD"),
+  sourceUrl: text("sourceUrl"),
+  payload: json("payload"),
+  fetchedAt: timestamp("fetchedAt").defaultNow().notNull(),
+});
+
+export type CatalogProduct = typeof catalogProducts.$inferSelect;
+
+// Cached keyword search results
+export const searchSnapshots = mysqlTable("search_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  query: varchar("query", { length: 255 }).notNull(),
+  platform: varchar("platform", { length: 32 }).notNull(),
+  region: varchar("region", { length: 16 }).notNull(),
+  payload: json("payload").notNull(),
+  sources: json("sources"),
+  isDemo: boolean("isDemo").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+});
+
+export type SearchSnapshot = typeof searchSnapshots.$inferSelect;
+
+// Google Trends / social trend signals
+export const trendSignals = mysqlTable("trend_signals", {
+  id: int("id").autoincrement().primaryKey(),
+  keyword: varchar("keyword", { length: 255 }).notNull(),
+  region: varchar("region", { length: 16 }).notNull(),
+  source: varchar("source", { length: 32 }).notNull(),
+  momentumScore: float("momentumScore").default(0).notNull(),
+  momentumLabel: varchar("momentumLabel", { length: 16 }),
+  changePercent90d: float("changePercent90d"),
+  interestOverTime: json("interestOverTime"),
+  relatedQueries: json("relatedQueries"),
+  risingQueries: json("risingQueries"),
+  raw: json("raw"),
+  fetchedAt: timestamp("fetchedAt").defaultNow().notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+});
+
+export type TrendSignalRow = typeof trendSignals.$inferSelect;
+
+// Meta Ad Library snapshots
+export const adLibrarySnapshots = mysqlTable("ad_library_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  keyword: varchar("keyword", { length: 255 }).notNull(),
+  region: varchar("region", { length: 16 }).notNull(),
+  activeAdCount: int("activeAdCount").default(0).notNull(),
+  advertiserCount: int("advertiserCount").default(0).notNull(),
+  creatives: json("creatives").notNull(),
+  gaps: json("gaps"),
+  raw: json("raw"),
+  fetchedAt: timestamp("fetchedAt").defaultNow().notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+});
+
+export type AdLibrarySnapshotRow = typeof adLibrarySnapshots.$inferSelect;
+
+// TikTok Ads Library snapshots
+export const tiktokAdsSnapshots = mysqlTable("tiktok_ads_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  keyword: varchar("keyword", { length: 255 }).notNull(),
+  region: varchar("region", { length: 16 }).notNull(),
+  activeAdCount: int("activeAdCount").default(0).notNull(),
+  advertiserCount: int("advertiserCount").default(0).notNull(),
+  creatives: json("creatives").notNull(),
+  gaps: json("gaps"),
+  source: varchar("source", { length: 32 }).default("cached").notNull(),
+  raw: json("raw"),
+  fetchedAt: timestamp("fetchedAt").defaultNow().notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+});
+
+export type TikTokAdsSnapshotRow = typeof tiktokAdsSnapshots.$inferSelect;
+
+// Daily ingest job runs
+export const ingestRuns = mysqlTable("ingest_runs", {
+  id: int("id").autoincrement().primaryKey(),
+  status: mysqlEnum("status", ["running", "completed", "failed"]).notNull(),
+  apiCounts: json("apiCounts"),
+  errors: json("errors"),
+  startedAt: timestamp("startedAt").defaultNow().notNull(),
+  completedAt: timestamp("completedAt"),
+});
+
+export type IngestRun = typeof ingestRuns.$inferSelect;
+
+// Daily API usage caps (platform-wide)
+export const apiUsageDaily = mysqlTable("api_usage_daily", {
+  id: int("id").autoincrement().primaryKey(),
+  provider: varchar("provider", { length: 64 }).notNull(),
+  usageDate: varchar("usageDate", { length: 10 }).notNull(),
+  callCount: int("callCount").default(0).notNull(),
+});
+
+export type ApiUsageDaily = typeof apiUsageDaily.$inferSelect;
+
+// User live-credit wallet
+export const userCredits = mysqlTable("user_credits", {
+  userId: int("userId").primaryKey(),
+  balance: int("balance").default(0).notNull(),
+  /** Top-ups and admin grants — preserved across monthly allowance resets */
+  purchasedBalance: int("purchasedBalance").default(0).notNull(),
+  monthlyAllowance: int("monthlyAllowance").default(0).notNull(),
+  resetAt: timestamp("resetAt"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type UserCredits = typeof userCredits.$inferSelect;
+
+export const creditTransactions = mysqlTable("credit_transactions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  amount: int("amount").notNull(),
+  type: mysqlEnum("type", [
+    "monthly_grant",
+    "purchase",
+    "spend",
+    "admin_grant",
+    "refund",
+  ]).notNull(),
+  action: varchar("action", { length: 64 }),
+  metadata: json("metadata"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type CreditTransaction = typeof creditTransactions.$inferSelect;
+
+// AI output cache
+export const aiOutputCache = mysqlTable("ai_output_cache", {
+  id: int("id").autoincrement().primaryKey(),
+  cacheKey: varchar("cacheKey", { length: 128 }).notNull().unique(),
+  feature: varchar("feature", { length: 64 }).notNull(),
+  payload: json("payload").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+});
+
+export type AiOutputCache = typeof aiOutputCache.$inferSelect;
+
+// User-saved social media kits
+export const savedSocialKits = mysqlTable("saved_social_kits", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  productTitle: varchar("productTitle", { length: 255 }).notNull(),
+  productBenefit: text("productBenefit"),
+  region: varchar("region", { length: 16 }),
+  productId: varchar("productId", { length: 128 }),
+  payload: json("payload").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type SavedSocialKitRow = typeof savedSocialKits.$inferSelect;
+export type InsertSavedSocialKit = typeof savedSocialKits.$inferInsert;
+
+// User keyword watches for rising-trend alerts
+export const intelKeywordWatches = mysqlTable("intel_keyword_watches", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  keyword: varchar("keyword", { length: 255 }).notNull(),
+  region: varchar("region", { length: 16 }).notNull(),
+  lastMomentumLabel: varchar("lastMomentumLabel", { length: 16 }),
+  alertOnRising: boolean("alertOnRising").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type IntelKeywordWatch = typeof intelKeywordWatches.$inferSelect;
+export type InsertIntelKeywordWatch = typeof intelKeywordWatches.$inferInsert;
+
+// Email digest preferences for rising keywords
+export const intelDigestPrefs = mysqlTable("intel_digest_prefs", {
+  userId: int("userId").primaryKey(),
+  enabled: boolean("enabled").default(false).notNull(),
+  region: varchar("region", { length: 16 }).default("US").notNull(),
+  category: varchar("category", { length: 64 }),
+  lastSentAt: timestamp("lastSentAt"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type IntelDigestPrefs = typeof intelDigestPrefs.$inferSelect;

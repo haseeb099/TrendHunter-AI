@@ -1,34 +1,25 @@
 import type { LucideIcon } from "lucide-react";
-import type { FeatureId } from "@shared/plans";
+import type { DashboardTabId, FeatureId } from "@shared/plans";
 import {
   BarChart3,
   BookmarkIcon,
   CreditCard,
   DollarSign,
   Layers,
+  LineChart,
   MessageSquare,
+  Radar,
   Search,
   Settings,
   Sparkles,
   TrendingUp,
+  Video,
   Users,
   Zap,
+  LayoutDashboard,
 } from "lucide-react";
 
-export type DashboardTabId =
-  | "search"
-  | "validate"
-  | "competitors"
-  | "profit"
-  | "suppliers"
-  | "social"
-  | "marketgap"
-  | "analytics"
-  | "agent"
-  | "pipeline"
-  | "watchlist"
-  | "billing"
-  | "account";
+export type { DashboardTabId };
 
 export type DashboardNavItem = {
   id: DashboardTabId;
@@ -73,6 +64,35 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
         description: "Underserved niches and opportunities",
         icon: BarChart3,
         requiredFeature: "marketgap",
+      },
+    ],
+  },
+  {
+    label: "Market Intelligence",
+    items: [
+      {
+        id: "intel",
+        label: "Intel Center",
+        description: "What's trending, where, and why — one place",
+        icon: LayoutDashboard,
+      },
+      {
+        id: "trendpulse",
+        label: "Google Trends",
+        description: "Search demand and rising queries",
+        icon: LineChart,
+      },
+      {
+        id: "adradar",
+        label: "Meta Ad Library",
+        description: "Competitor ads and creative hooks",
+        icon: Radar,
+      },
+      {
+        id: "tiktokradar",
+        label: "TikTok Ads",
+        description: "TikTok ad library and creative trends",
+        icon: Video,
       },
     ],
   },

@@ -18,6 +18,20 @@ import {
 import { billingRouter } from "./billingRouter";
 import { adminRouter } from "./adminRouter";
 import { assertSearchQuota, buildSubscriptionInfo, createTrialFields } from "./plans";
+import { spendCredits } from "./credits";
+import { getTrendSignal } from "./intelligence/trends";
+import { getAdLibrarySnapshot } from "./intelligence/adLibrary";
+import { buildIntelligenceContext } from "./intelligence/summary";
+import { resolveEffectivePlan } from "./plans";
+import {
+  canSaveMoreKits,
+  formatSavedKitLimit,
+  savedSocialKitLimit,
+} from "@shared/socialKit";
+import type { SocialKitPayload } from "@shared/socialKitTypes";
+import { intelligenceRouter } from "./intelligenceRouter";
+import { withAiOutputCache } from "./dataPlatform/aiOutputCache";
+import { creditsRouter } from "./creditsRouter";
 import { getPlatformSettings } from "./planCatalog";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
@@ -25,7 +39,7 @@ import { nanoid } from "nanoid";
 import { hashPassword, verifyPassword } from "./_core/password";
 import { createSessionToken, setSessionCookie } from "./_core/session";
 import { normalizeEmail } from "./_core/normalizeEmail";
-import { assertAuthRateLimit } from "./_core/rateLimit";
+import { assertAuthRateLimit, assertRateLimit, getClientIp } from "./_core/rateLimit";
 import { assertUserOwnsUploadKey, buildUserUploadKey } from "./_core/uploadKeys";
 import { toPublicUser } from "./_core/userPublic";
 import {
@@ -60,6 +74,12 @@ import {
   deleteFilterPreset,
   countUserEvents,
   recordUserEvent,
+  getSavedSocialKits,
+  getSavedSocialKitById,
+  countSavedSocialKits,
+  saveSocialKit,
+  updateSocialKit,
+  deleteSocialKit,
 } from "./db";
 import { invokeLLMOrThrow } from "./_core/aiHelpers";
 import { getSearchProviderStatus, searchProducts as runProductSearch } from "./search";
@@ -93,10 +113,22 @@ const productHuntFiltersSchema = z
   })
   .optional();
 
+async function runSocialAiCached<T extends Record<string, unknown>>(
+  feature: string,
+  cacheInput: Record<string, unknown>,
+  live: boolean | undefined,
+  run: () => Promise<T>
+): Promise<T> {
+  if (live) return run();
+  return withAiOutputCache(feature, cacheInput, run);
+}
+
 export const appRouter = router({
   system: systemRouter,
   billing: billingRouter,
   admin: adminRouter,
+  credits: creditsRouter,
+  intelligence: intelligenceRouter,
   auth: router({
     me: publicProcedure.query(async (opts) => {
       if (!opts.ctx.user) return null;
@@ -112,7 +144,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ ctx, input }) => {
-        assertAuthRateLimit(ctx.req, input.email);
+        await assertAuthRateLimit(ctx.req, input.email);
         const settings = await getPlatformSettings();
         if (settings.registration_enabled === false) {
           throw new TRPCError({
@@ -156,7 +188,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ ctx, input }) => {
-        assertAuthRateLimit(ctx.req, input.email);
+        await assertAuthRateLimit(ctx.req, input.email);
         const user = await getUserByEmail(normalizeEmail(input.email));
         if (!user?.passwordHash || !verifyPassword(input.password, user.passwordHash)) {
           throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid email or password" });
@@ -244,19 +276,38 @@ export const appRouter = router({
           query: z.string().min(1),
           platform: z.enum(["all", "ebay", "amazon", "shopify", "tiktok"]),
           filters: productHuntFiltersSchema,
+          live: z.boolean().optional(),
         })
       )
       .query(async ({ ctx, input }) => {
+        const user = getCtxUser(ctx);
+        let creditsUsed = 0;
+
+        if (input.live) {
+          await assertSearchQuota(user);
+        }
+
         const results = await runProductSearch(
           input.query,
           input.platform,
-          input.filters as ProductHuntFilters | undefined
+          input.filters as ProductHuntFilters | undefined,
+          { live: input.live }
         );
-        await recordUserEvent(getCtxUser(ctx).id, "search_query", {
-          query: input.query,
-          platform: input.platform,
-        });
-        return results;
+
+        if (input.live) {
+          creditsUsed = await spendCredits(user, "live_search", {
+            query: input.query,
+            platform: input.platform,
+          });
+          await recordUserEvent(user.id, "search_query", {
+            query: input.query,
+            platform: input.platform,
+            live: true,
+            creditsUsed,
+          });
+        }
+
+        return { ...results, creditsUsed: results.creditsUsed ?? creditsUsed };
       }),
   }),
 
@@ -268,12 +319,14 @@ export const appRouter = router({
           category: z.string().optional(),
         })
       )
-      .query(({ input }) =>
-        getTrendingFeed({
+      .query(async ({ ctx, input }) => {
+        const ip = getClientIp(ctx.req);
+        await assertRateLimit(`trending:ip:${ip}`, 120, 60 * 1000);
+        return getTrendingFeed({
           region: input.region as RegionCode | undefined,
           category: input.category,
-        })
-      ),
+        });
+      }),
     getRegions: publicProcedure.query(() => ({
       defaultRegion: ENV.defaultRegion,
       regions: getSupportedRegionOptions(),
@@ -345,13 +398,33 @@ export const appRouter = router({
   // Product Validation (AI-powered)
   validate: router({
     validateProduct: aiProcedure("validate")
-      .input(z.object({ productTitle: z.string(), platform: z.string(), price: z.number() }))
+      .input(
+        z.object({
+          productTitle: z.string(),
+          platform: z.string(),
+          price: z.number(),
+          region: regionCodeSchema.optional(),
+          live: z.boolean().optional(),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
-        // Use LLM to generate validation scores
+        const user = getCtxUser(ctx);
+        const region = (input.region ?? ENV.defaultRegion) as RegionCode;
+        let creditsUsed = 0;
+
+        const [trend, ads] = await Promise.all([
+          getTrendSignal(input.productTitle, region, { live: input.live }),
+          getAdLibrarySnapshot(input.productTitle, region, { live: false }),
+        ]);
+        const intelContext = buildIntelligenceContext(input.productTitle, trend, ads);
+
         const prompt = `Analyze this product for dropshipping viability:
 Product: ${input.productTitle}
 Platform: ${input.platform}
 Price: $${input.price}
+
+Market intelligence (cached daily data):
+${intelContext}
 
 Provide a JSON response with:
 - trendScore (0-100): Is demand rising?
@@ -388,8 +461,14 @@ Also include brief reasoning for each score.`;
 
         const content = response.choices[0]?.message.content;
         if (!content || typeof content !== "string") throw new Error("No response from LLM");
-        await recordUserEvent(getCtxUser(ctx).id, "ai_call", { feature: "validate" });
-        return JSON.parse(content);
+        if (input.live) {
+          creditsUsed = await spendCredits(user, "validate_live", {
+            productTitle: input.productTitle,
+          });
+        }
+        await recordUserEvent(user.id, "ai_call", { feature: "validate" });
+        const parsed = JSON.parse(content);
+        return { ...parsed, creditsUsed, trendSignal: trend, adSnapshot: ads };
       }),
   }),
 
@@ -400,27 +479,37 @@ Also include brief reasoning for each score.`;
         z.object({
           url: z.string().optional(),
           keyword: z.string().optional(),
+          region: regionCodeSchema.optional(),
+          live: z.boolean().optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
+        const user = getCtxUser(ctx);
         const keyword = input.keyword?.trim() ?? "";
         const url = input.url?.trim() ?? "";
+        const region = (input.region ?? ENV.defaultRegion) as RegionCode;
+        let creditsUsed = 0;
 
         let marketplaceContext = "";
         if (keyword) {
           try {
-            await assertSearchQuota(getCtxUser(ctx));
-            const searchResult = await runProductSearch(keyword, "all", {
-              sort: "price_asc",
-            });
-            await recordUserEvent(getCtxUser(ctx).id, "search_query", {
-              query: keyword,
-              platform: "all",
-              source: "competitors",
-            });
+            const searchResult = await runProductSearch(
+              keyword,
+              "all",
+              { sort: "price_asc", region },
+              { live: input.live }
+            );
+            if (input.live) {
+              await recordUserEvent(user.id, "search_query", {
+                query: keyword,
+                platform: "all",
+                source: "competitors",
+                live: true,
+              });
+            }
             const top = searchResult.results.slice(0, 6);
             if (top.length > 0) {
-              marketplaceContext = `\n\nLive marketplace snapshot (${searchResult.isDemo ? "demo" : "live"} data):\n${top
+              marketplaceContext = `\n\nMarketplace snapshot (${searchResult.dataMode ?? "cached"} data):\n${top
                 .map(
                   (p) =>
                     `- [${p.platform}] ${p.title} @ ${p.price} ${p.currency ?? "USD"}${p.rating ? ` rating ${p.rating}` : ""}`
@@ -432,9 +521,21 @@ Also include brief reasoning for each score.`;
           }
         }
 
+        const [trend, ads] = keyword
+          ? await Promise.all([
+              getTrendSignal(keyword, region, { live: input.live }),
+              getAdLibrarySnapshot(keyword, region, { live: input.live }),
+            ])
+          : [null, null];
+
+        const intelContext = keyword
+          ? buildIntelligenceContext(keyword, trend, ads)
+          : "";
+
         const prompt = `Analyze this competitor listing/store:
 ${url ? `URL: ${url}` : "URL: not provided"}
 ${keyword ? `Keyword focus: ${keyword}` : ""}${marketplaceContext}
+${intelContext ? `\n\nTrend & ad intelligence:\n${intelContext}` : ""}
 
 Provide competitive intelligence in JSON format:
 - pricing: estimated price range
@@ -485,10 +586,16 @@ Provide competitive intelligence in JSON format:
         const parsed =
           content && typeof content === "string" ? JSON.parse(content) : { position: "Analysis complete" };
 
-        await recordUserEvent(getCtxUser(ctx).id, "ai_call", { feature: "competitors" });
+        if (input.live && keyword) {
+          creditsUsed = await spendCredits(user, "competitor_live", { keyword });
+        }
+        await recordUserEvent(user.id, "ai_call", { feature: "competitors" });
         return {
           analysis: parsed,
           timestamp: new Date(),
+          creditsUsed,
+          trendSignal: trend,
+          adSnapshot: ads,
         };
       }),
   }),
@@ -607,12 +714,43 @@ Provide competitive intelligence in JSON format:
   // Social Media Kit
   social: router({
     generateHashtags: aiProcedure("social")
-      .input(z.object({ productTitle: z.string(), niche: z.string().optional() }))
+      .input(
+        z.object({
+          productTitle: z.string(),
+          niche: z.string().optional(),
+          region: regionCodeSchema.optional(),
+          live: z.boolean().optional(),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
+        const user = getCtxUser(ctx);
+        const region = (input.region ?? ENV.defaultRegion) as RegionCode;
+        const cacheInput = {
+          productTitle: input.productTitle,
+          niche: input.niche ?? "",
+          region,
+        };
+
+        return runSocialAiCached("social_hashtags", cacheInput, input.live, async () => {
+        const kw = input.niche?.trim() || input.productTitle;
+        let creditsUsed = 0;
+        const [trend, ads] = await Promise.all([
+          getTrendSignal(kw, region, { live: input.live }),
+          getAdLibrarySnapshot(kw, region),
+        ]);
+        if (input.live) {
+          creditsUsed = await spendCredits(user, "social_live", { productTitle: input.productTitle });
+        }
+        const rising = trend?.risingQueries?.slice(0, 8).join(", ") ?? "";
+        const adHooks = ads?.creatives?.slice(0, 3).map((c) => c.bodyText).filter(Boolean).join(" | ") ?? "";
+
         const prompt = `Generate 30 trending hashtags for this product on TikTok and Instagram:
 Product: ${input.productTitle}
 ${input.niche ? `Niche: ${input.niche}` : ""}
+${rising ? `Rising search queries: ${rising}` : ""}
+${adHooks ? `Competitor ad hooks to differentiate from: ${adHooks}` : ""}
 
+Group mentally into: trending (10), niche (10), brand-style (10).
 Return as a JSON array of hashtag strings (without the # symbol).`;
 
         const response = await invokeLLMOrThrow({
@@ -639,15 +777,37 @@ Return as a JSON array of hashtag strings (without the # symbol).`;
 
         const content = response.choices[0]?.message.content;
         if (!content || typeof content !== "string") throw new Error("No response from LLM");
-        await recordUserEvent(getCtxUser(ctx).id, "ai_call", { feature: "social" });
-        return JSON.parse(content);
+        await recordUserEvent(user.id, "ai_call", { feature: "social" });
+        const parsed = JSON.parse(content);
+        return { ...parsed, creditsUsed, trendSignal: trend };
+        });
       }),
     generateAdCopy: aiProcedure("social")
-      .input(z.object({ productTitle: z.string(), productBenefit: z.string() }))
+      .input(
+        z.object({
+          productTitle: z.string(),
+          productBenefit: z.string(),
+          region: regionCodeSchema.optional(),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
+        const region = (input.region ?? ENV.defaultRegion) as RegionCode;
+        return withAiOutputCache(
+          "social_ad_copy",
+          {
+            productTitle: input.productTitle,
+            productBenefit: input.productBenefit,
+            region,
+          },
+          async () => {
+        const ads = await getAdLibrarySnapshot(input.productTitle, region);
+        const competitorHooks =
+          ads?.creatives?.slice(0, 5).map((c) => c.bodyText).filter(Boolean).join("\n- ") ?? "";
+
         const prompt = `Write 5 compelling ad copy variations for this product:
 Product: ${input.productTitle}
 Key Benefit: ${input.productBenefit}
+${competitorHooks ? `Competitor hooks to beat:\n- ${competitorHooks}` : ""}
 
 Return as JSON with array of copy strings. Each should be 50-100 characters, attention-grabbing, and include a CTA.`;
 
@@ -677,12 +837,167 @@ Return as JSON with array of copy strings. Each should be 50-100 characters, att
         if (!content || typeof content !== "string") throw new Error("No response from LLM");
         await recordUserEvent(getCtxUser(ctx).id, "ai_call", { feature: "social" });
         return JSON.parse(content);
+          }
+        );
+      }),
+    generateHooks: aiProcedure("social")
+      .input(z.object({ productTitle: z.string(), region: regionCodeSchema.optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const region = (input.region ?? ENV.defaultRegion) as RegionCode;
+        return withAiOutputCache(
+          "social_hooks",
+          { productTitle: input.productTitle, region },
+          async () => {
+        const [trend, ads] = await Promise.all([
+          getTrendSignal(input.productTitle, region),
+          getAdLibrarySnapshot(input.productTitle, region),
+        ]);
+
+        const prompt = `Write 5 scroll-stopping opening hooks (first line only) for short-form video about:
+Product: ${input.productTitle}
+Trend: ${trend?.momentumLabel ?? "unknown"}${trend?.risingQueries?.length ? `, rising: ${trend.risingQueries.slice(0, 3).join(", ")}` : ""}
+${ads?.creatives?.[0]?.bodyText ? `Competitor sample: ${ads.creatives[0].bodyText.slice(0, 100)}` : ""}
+
+Return JSON: { "hooks": string[] }`;
+
+        const response = await invokeLLMOrThrow({
+          messages: [{ role: "user", content: prompt }],
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "hooks",
+              strict: true,
+              schema: {
+                type: "object",
+                properties: { hooks: { type: "array", items: { type: "string" } } },
+                required: ["hooks"],
+                additionalProperties: false,
+              },
+            },
+          },
+        });
+
+        const content = response.choices[0]?.message.content;
+        if (!content || typeof content !== "string") throw new Error("No response from LLM");
+        await recordUserEvent(getCtxUser(ctx).id, "ai_call", { feature: "social" });
+        return JSON.parse(content);
+          }
+        );
+      }),
+    generateContentCalendar: aiProcedure("social")
+      .input(z.object({ productTitle: z.string(), region: regionCodeSchema.optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const region = (input.region ?? ENV.defaultRegion) as RegionCode;
+        return withAiOutputCache(
+          "social_calendar",
+          { productTitle: input.productTitle, region },
+          async () => {
+        const trend = await getTrendSignal(input.productTitle, region);
+
+        const prompt = `Create a 7-day social content calendar for selling: ${input.productTitle}
+Trend momentum: ${trend?.momentumLabel ?? "stable"}
+${trend?.risingQueries?.length ? `Rising queries: ${trend.risingQueries.slice(0, 5).join(", ")}` : ""}
+
+Return JSON: { "days": [{ "day": number, "platform": "tiktok"|"instagram"|"facebook", "topic": string, "format": string }] }`;
+
+        const response = await invokeLLMOrThrow({
+          messages: [{ role: "user", content: prompt }],
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "calendar",
+              strict: true,
+              schema: {
+                type: "object",
+                properties: {
+                  days: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        day: { type: "number" },
+                        platform: { type: "string" },
+                        topic: { type: "string" },
+                        format: { type: "string" },
+                      },
+                      required: ["day", "platform", "topic", "format"],
+                      additionalProperties: false,
+                    },
+                  },
+                },
+                required: ["days"],
+                additionalProperties: false,
+              },
+            },
+          },
+        });
+
+        const content = response.choices[0]?.message.content;
+        if (!content || typeof content !== "string") throw new Error("No response from LLM");
+        await recordUserEvent(getCtxUser(ctx).id, "ai_call", { feature: "social" });
+        return JSON.parse(content);
+          }
+        );
+      }),
+    generateSeoBlock: aiProcedure("social")
+      .input(z.object({ productTitle: z.string(), benefit: z.string().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        return withAiOutputCache(
+          "social_seo",
+          { productTitle: input.productTitle, benefit: input.benefit ?? "" },
+          async () => {
+        const prompt = `Write SEO listing copy for an e-commerce product:
+Product: ${input.productTitle}
+${input.benefit ? `Key benefit: ${input.benefit}` : ""}
+
+Return JSON: { "title": string, "metaDescription": string, "bulletPoints": string[] }`;
+
+        const response = await invokeLLMOrThrow({
+          messages: [{ role: "user", content: prompt }],
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "seo",
+              strict: true,
+              schema: {
+                type: "object",
+                properties: {
+                  title: { type: "string" },
+                  metaDescription: { type: "string" },
+                  bulletPoints: { type: "array", items: { type: "string" } },
+                },
+                required: ["title", "metaDescription", "bulletPoints"],
+                additionalProperties: false,
+              },
+            },
+          },
+        });
+
+        const content = response.choices[0]?.message.content;
+        if (!content || typeof content !== "string") throw new Error("No response from LLM");
+        await recordUserEvent(getCtxUser(ctx).id, "ai_call", { feature: "social" });
+        return JSON.parse(content);
+          }
+        );
       }),
     generateCaption: aiProcedure("social")
-      .input(z.object({ productTitle: z.string(), platform: z.enum(["tiktok", "instagram"]) }))
+      .input(
+        z.object({
+          productTitle: z.string(),
+          platform: z.enum(["tiktok", "instagram"]),
+          region: regionCodeSchema.optional(),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
+        const region = (input.region ?? ENV.defaultRegion) as RegionCode;
+        return withAiOutputCache(
+          "social_caption",
+          { productTitle: input.productTitle, platform: input.platform, region },
+          async () => {
+        const trend = await getTrendSignal(input.productTitle, region);
         const prompt = `Write a viral ${input.platform} caption for this product:
 Product: ${input.productTitle}
+${trend?.risingQueries?.length ? `Trending angles: ${trend.risingQueries.slice(0, 3).join(", ")}` : ""}
 
 Make it engaging, include relevant emojis, and a hook that stops the scroll. Return as plain text.`;
 
@@ -692,15 +1007,257 @@ Make it engaging, include relevant emojis, and a hook that stops the scroll. Ret
 
         await recordUserEvent(getCtxUser(ctx).id, "ai_call", { feature: "social" });
         return { caption: response.choices[0]?.message.content || "" };
+          }
+        );
+      }),
+
+    /** One AI call → full kit (hashtags, hooks, ads, calendar, SEO, captions) */
+    generateFullKit: aiProcedure("social")
+      .input(
+        z.object({
+          productTitle: z.string().min(1),
+          productBenefit: z.string().optional(),
+          region: regionCodeSchema.optional(),
+          live: z.boolean().optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const user = getCtxUser(ctx);
+        const region = (input.region ?? ENV.defaultRegion) as RegionCode;
+        const benefit = input.productBenefit?.trim() ?? "";
+        const cacheInput = {
+          productTitle: input.productTitle,
+          productBenefit: benefit,
+          region,
+        };
+
+        return runSocialAiCached("social_full_kit", cacheInput, input.live, async () => {
+        let creditsUsed = 0;
+
+        const [trend, ads] = await Promise.all([
+          getTrendSignal(input.productTitle, region, { live: input.live }),
+          getAdLibrarySnapshot(input.productTitle, region),
+        ]);
+        if (input.live) {
+          creditsUsed = await spendCredits(user, "social_live", { productTitle: input.productTitle });
+        }
+        const intel = buildIntelligenceContext(input.productTitle, trend, ads);
+
+        const prompt = `Create a complete social media kit for this dropshipping product.
+
+Product: ${input.productTitle}
+${benefit ? `Key benefit: ${benefit}` : ""}
+
+Market intelligence:
+${intel}
+
+Return JSON with:
+- hashtags: 30 strings (no # prefix)
+- hooks: 5 scroll-stopping video openers
+- copies: 5 ad copy lines (50-100 chars each)
+- days: 7-day calendar [{ day, platform, topic, format }]
+- seo: { title, metaDescription, bulletPoints[] }
+- tiktokCaption: full TikTok caption with emojis
+- instagramCaption: full Instagram caption`;
+
+        const response = await invokeLLMOrThrow({
+          messages: [{ role: "user", content: prompt }],
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "full_social_kit",
+              strict: true,
+              schema: {
+                type: "object",
+                properties: {
+                  hashtags: { type: "array", items: { type: "string" } },
+                  hooks: { type: "array", items: { type: "string" } },
+                  copies: { type: "array", items: { type: "string" } },
+                  days: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        day: { type: "number" },
+                        platform: { type: "string" },
+                        topic: { type: "string" },
+                        format: { type: "string" },
+                      },
+                      required: ["day", "platform", "topic", "format"],
+                      additionalProperties: false,
+                    },
+                  },
+                  seo: {
+                    type: "object",
+                    properties: {
+                      title: { type: "string" },
+                      metaDescription: { type: "string" },
+                      bulletPoints: { type: "array", items: { type: "string" } },
+                    },
+                    required: ["title", "metaDescription", "bulletPoints"],
+                    additionalProperties: false,
+                  },
+                  tiktokCaption: { type: "string" },
+                  instagramCaption: { type: "string" },
+                },
+                required: [
+                  "hashtags",
+                  "hooks",
+                  "copies",
+                  "days",
+                  "seo",
+                  "tiktokCaption",
+                  "instagramCaption",
+                ],
+                additionalProperties: false,
+              },
+            },
+          },
+        });
+
+        const content = response.choices[0]?.message.content;
+        if (!content || typeof content !== "string") throw new Error("No response from LLM");
+        await recordUserEvent(user.id, "ai_call", { feature: "social" });
+        const parsed = JSON.parse(content) as SocialKitPayload;
+        return {
+          kit: { ...parsed, generatedAt: new Date().toISOString() } satisfies SocialKitPayload,
+          creditsUsed,
+          trendSignal: trend,
+          adSnapshot: ads,
+        };
+        });
+      }),
+
+    getKitLimits: protectedProcedure.query(async ({ ctx }) => {
+      const user = getCtxUser(ctx);
+      const plan = resolveEffectivePlan(user).effectivePlanId;
+      const count = await countSavedSocialKits(user.id);
+      const limit = savedSocialKitLimit(plan);
+      return {
+        planId: plan,
+        savedCount: count,
+        savedLimit: limit,
+        savedLimitLabel: formatSavedKitLimit(plan),
+        canSaveMore: canSaveMoreKits(plan, count),
+      };
+    }),
+
+    listSavedKits: protectedProcedure.query(async ({ ctx }) => {
+      const rows = await getSavedSocialKits(getCtxUser(ctx).id);
+      return rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        productTitle: r.productTitle,
+        productBenefit: r.productBenefit,
+        region: r.region,
+        productId: r.productId,
+        createdAt: r.createdAt.toISOString(),
+        updatedAt: r.updatedAt.toISOString(),
+      }));
+    }),
+
+    getSavedKit: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const row = await getSavedSocialKitById(input.id, getCtxUser(ctx).id);
+        if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Kit not found" });
+        return {
+          id: row.id,
+          name: row.name,
+          productTitle: row.productTitle,
+          productBenefit: row.productBenefit,
+          region: row.region,
+          productId: row.productId,
+          payload: row.payload as SocialKitPayload,
+          createdAt: row.createdAt.toISOString(),
+          updatedAt: row.updatedAt.toISOString(),
+        };
+      }),
+
+    saveKit: featureProcedure("social")
+      .input(
+        z.object({
+          name: z.string().min(1).max(255),
+          productTitle: z.string().min(1).max(500),
+          productBenefit: z.string().max(2000).optional(),
+          region: regionCodeSchema.optional(),
+          productId: z.string().max(128).optional(),
+          payload: z.record(z.string(), z.unknown()),
+          id: z.number().optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const user = getCtxUser(ctx);
+        const payloadBytes = Buffer.byteLength(JSON.stringify(input.payload), "utf8");
+        if (payloadBytes > 512_000) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Kit payload too large (max 500KB). Remove large assets before saving.",
+          });
+        }
+        const plan = resolveEffectivePlan(user).effectivePlanId;
+
+        if (input.id) {
+          const existing = await getSavedSocialKitById(input.id, user.id);
+          if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Kit not found" });
+          await updateSocialKit(input.id, user.id, {
+            name: input.name,
+            productBenefit: input.productBenefit,
+            payload: input.payload,
+          });
+          return { id: input.id, updated: true };
+        }
+
+        const count = await countSavedSocialKits(user.id);
+        if (!canSaveMoreKits(plan, count)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: `Saved kit limit reached (${formatSavedKitLimit(plan)} on your plan). Delete a kit or upgrade.`,
+          });
+        }
+
+        const id = await saveSocialKit({
+          userId: user.id,
+          name: input.name,
+          productTitle: input.productTitle,
+          productBenefit: input.productBenefit,
+          region: input.region,
+          productId: input.productId,
+          payload: input.payload,
+        });
+        return { id, updated: false };
+      }),
+
+    deleteSavedKit: featureProcedure("social")
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await deleteSocialKit(input.id, getCtxUser(ctx).id);
+        return { ok: true };
       }),
   }),
 
   // Market Gap Finder
   marketgap: router({
     findGaps: aiProcedure("marketgap")
-      .input(z.object({ niche: z.string(), platforms: z.array(z.string()) }))
+      .input(
+        z.object({
+          niche: z.string(),
+          platforms: z.array(z.string()),
+          region: regionCodeSchema.optional(),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
+        const region = (input.region ?? ENV.defaultRegion) as RegionCode;
+        const [trend, ads] = await Promise.all([
+          getTrendSignal(input.niche, region),
+          getAdLibrarySnapshot(input.niche, region),
+        ]);
+        const intelContext = buildIntelligenceContext(input.niche, trend, ads);
+
         const prompt = `Analyze market gaps in the "${input.niche}" niche across ${input.platforms.join(", ")}:
+
+Market intelligence:
+${intelContext}
 
 Identify:
 1. Underserved niches with high demand but low supply

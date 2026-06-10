@@ -7,11 +7,14 @@ import { redeemCouponForUser } from "./coupons";
 import { getPlanCatalog, getPlatformSettings, getPublicPlans } from "./planCatalog";
 import { assignPaidPlan, buildSubscriptionInfo, startTrialForUser } from "./plans";
 import { ENV } from "./_core/env";
+import { type CreditPackId, CREDIT_PACKS, getCreditPack } from "@shared/credits";
 import {
   billingReturnUrl,
   getOrCreateStripeCustomer,
   getStripeClient,
   isStripeConfigured,
+  listConfiguredCreditPacks,
+  requireStripeCreditPackPriceId,
   requireStripePriceId,
 } from "./stripe";
 
@@ -188,6 +191,59 @@ export const billingRouter = router({
         message,
         subscription: await buildSubscriptionInfo(fresh),
       };
+    }),
+
+  getCreditPacks: authenticatedProcedure.query(() => {
+    const stripeOn = isStripeConfigured();
+    const packs = stripeOn ? listConfiguredCreditPacks() : [];
+    return {
+      stripeConfigured: stripeOn,
+      packs,
+      catalog: Object.values(CREDIT_PACKS),
+    };
+  }),
+
+  createCreditCheckoutSession: authenticatedProcedure
+    .input(z.object({ packId: z.enum(["pack_50", "pack_100", "pack_250"]) }))
+    .mutation(async ({ ctx, input }) => {
+      if (!isStripeConfigured()) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Credit purchases require Stripe checkout.",
+        });
+      }
+
+      const pack = getCreditPack(input.packId);
+      if (!pack) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid credit pack." });
+      }
+
+      const stripe = getStripeClient();
+      const customerId = await getOrCreateStripeCustomer(ctx.user);
+      const priceId = requireStripeCreditPackPriceId(input.packId as CreditPackId);
+
+      const session = await stripe.checkout.sessions.create({
+        mode: "payment",
+        customer: customerId,
+        line_items: [{ price: priceId, quantity: 1 }],
+        success_url: `${billingReturnUrl("/dashboard/billing")}?credits=success`,
+        cancel_url: `${billingReturnUrl("/dashboard/billing")}?credits=cancel`,
+        metadata: {
+          userId: String(ctx.user.id),
+          type: "credit_pack",
+          packId: input.packId,
+          credits: String(pack.credits),
+        },
+      });
+
+      if (!session.url) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to create checkout session.",
+        });
+      }
+
+      return { url: session.url, packId: input.packId, credits: pack.credits };
     }),
 
   getUpgradeOptions: authenticatedProcedure.query(async ({ ctx }) => {

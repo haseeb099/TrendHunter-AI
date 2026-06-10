@@ -10,7 +10,9 @@ import { serveStatic, setupVite } from "./vite";
 import { ENV } from "./env";
 import { validateEnvOnStartup } from "./validateEnv";
 import { registerStripeRoutes } from "../stripeRoutes";
+import { registerIngestRoutes } from "./ingestRoutes";
 import { expireStaleTrials } from "../plans";
+import { buildSitemapXml } from "../seo/sitemap";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -38,9 +40,22 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
   registerStripeRoutes(app);
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  // 8mb supports ~5mb file uploads via base64 in tRPC (routers uploadFile cap)
+  app.use(express.json({ limit: "8mb" }));
+  registerIngestRoutes(app);
+  app.use(express.urlencoded({ limit: "8mb", extended: true }));
   registerStorageRoutes(app);
+  app.get("/sitemap.xml", async (_req, res) => {
+    try {
+      const xml = await buildSitemapXml();
+      res.setHeader("Content-Type", "application/xml; charset=utf-8");
+      res.setHeader("Cache-Control", "public, max-age=3600");
+      res.send(xml);
+    } catch (err) {
+      console.error("[Sitemap]", err);
+      res.status(500).send("Sitemap unavailable");
+    }
+  });
   app.use(
     "/api/trpc",
     createExpressMiddleware({

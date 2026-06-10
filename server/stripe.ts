@@ -1,5 +1,10 @@
 import Stripe from "stripe";
 import type { PlanId } from "@shared/plans";
+import {
+  type CreditPackId,
+  CREDIT_PACK_IDS,
+  getCreditPack,
+} from "@shared/credits";
 import { TRPCError } from "@trpc/server";
 import type { User } from "../drizzle/schema";
 import { getUserById, updateUserSubscription } from "./db";
@@ -88,4 +93,55 @@ export function planIdFromStripePrice(priceId: string | undefined | null): PlanI
     if (getStripePriceId(planId) === priceId) return planId;
   }
   return null;
+}
+
+const CREDIT_PACK_PRICE_ENV: Record<CreditPackId, keyof typeof ENV> = {
+  pack_50: "stripePriceCredits50",
+  pack_100: "stripePriceCredits100",
+  pack_250: "stripePriceCredits250",
+};
+
+const CREDIT_PACK_PRICE_PROCESS_ENV: Record<CreditPackId, string> = {
+  pack_50: "STRIPE_PRICE_CREDITS_50",
+  pack_100: "STRIPE_PRICE_CREDITS_100",
+  pack_250: "STRIPE_PRICE_CREDITS_250",
+};
+
+export function getStripeCreditPackPriceId(packId: CreditPackId): string | null {
+  const envKey = CREDIT_PACK_PRICE_PROCESS_ENV[packId];
+  const fromProcess = process.env[envKey]?.trim();
+  if (fromProcess) return fromProcess;
+  const fromConfig = ENV[CREDIT_PACK_PRICE_ENV[packId]];
+  return typeof fromConfig === "string" && fromConfig.length > 0 ? fromConfig : null;
+}
+
+export function requireStripeCreditPackPriceId(packId: CreditPackId): string {
+  const priceId = getStripeCreditPackPriceId(packId);
+  if (!priceId) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: `Stripe price not configured for credit pack: ${packId}`,
+    });
+  }
+  return priceId;
+}
+
+export function creditPackIdFromStripePrice(priceId: string | undefined | null): CreditPackId | null {
+  if (!priceId) return null;
+  for (const packId of CREDIT_PACK_IDS) {
+    if (getStripeCreditPackPriceId(packId) === priceId) return packId;
+  }
+  return null;
+}
+
+export function listConfiguredCreditPacks() {
+  return CREDIT_PACK_IDS.filter((packId) => Boolean(getStripeCreditPackPriceId(packId))).map(
+    (packId) => {
+      const pack = getCreditPack(packId)!;
+      return {
+        ...pack,
+        stripeConfigured: true,
+      };
+    }
+  );
 }

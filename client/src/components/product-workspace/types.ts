@@ -3,7 +3,10 @@ export type ProductDrawerTab =
   | "suppliers"
   | "validate"
   | "profit"
-  | "competitors";
+  | "competitors"
+  | "intelligence";
+
+import type { AdLibrarySnapshot, TrendSignal } from "@shared/intelligenceTypes";
 
 export type ProductValidationResult = {
   trendScore: number;
@@ -13,3 +16,23 @@ export type ProductValidationResult = {
   overallScore: number;
   reasoning: string;
 };
+
+export type ProductValidationResponse = ProductValidationResult & {
+  creditsUsed?: number;
+  trendSignal?: TrendSignal | null;
+  adSnapshot?: AdLibrarySnapshot | null;
+};
+
+export function pickValidationScores(
+  data: ProductValidationResponse | undefined
+): ProductValidationResult | undefined {
+  if (!data) return undefined;
+  return {
+    trendScore: data.trendScore,
+    saturationScore: data.saturationScore,
+    profitPotential: data.profitPotential,
+    supplierReliability: data.supplierReliability,
+    overallScore: data.overallScore,
+    reasoning: data.reasoning,
+  };
+}

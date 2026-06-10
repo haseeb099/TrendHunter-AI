@@ -61,8 +61,16 @@ export const ENV = {
   supportedRegions: parseSupportedRegions(
     process.env.SUPPORTED_REGIONS ?? "US,UK,EU,GLOBAL"
   ),
-  trendingCacheTtlHours: parseInt(process.env.TRENDING_CACHE_TTL_HOURS ?? "6", 10),
+  trendingCacheTtlHours: parseInt(process.env.TRENDING_CACHE_TTL_HOURS ?? "24", 10),
   trendingMaxItems: parseInt(process.env.TRENDING_MAX_ITEMS ?? "40", 10),
+  searchCacheTtlHours: parseInt(process.env.SEARCH_CACHE_TTL_HOURS ?? "24", 10),
+  offersCacheTtlHours: parseInt(process.env.OFFERS_CACHE_TTL_HOURS ?? "24", 10),
+  ingestMode: process.env.INGEST_MODE !== "live_first",
+  serpApiDailyCap: parseInt(process.env.SERPAPI_DAILY_CAP ?? "3", 10),
+  metaAdsDailyCap: parseInt(process.env.META_ADS_DAILY_CAP ?? "10", 10),
+  liveSearchRequiresCredits: process.env.LIVE_SEARCH_REQUIRES_CREDITS !== "false",
+  metaAccessToken: process.env.META_ACCESS_TOKEN ?? "",
+  ingestSecret: process.env.INGEST_SECRET ?? "",
   cjApiKey: process.env.CJ_API_KEY ?? "",
   cjApiBase:
     process.env.CJ_API_BASE?.replace(/\/$/, "") ??
@@ -76,6 +84,12 @@ export const ENV = {
   /** Off by default until Shoptera REST search path is confirmed (optional). */
   shopteraEnabled: process.env.SHOPTERA_ENABLED === "true",
   appUrl: process.env.APP_URL?.replace(/\/$/, "") ?? "http://localhost:3000",
+  redisUrl: process.env.REDIS_URL?.trim() ?? "",
+  searchApiKey: process.env.SEARCHAPI_KEY?.trim() ?? "",
+  tiktokAdsDailyCap: parseInt(process.env.TIKTOK_ADS_DAILY_CAP ?? "10", 10),
+  resendApiKey: process.env.RESEND_API_KEY?.trim() ?? "",
+  emailFrom: process.env.EMAIL_FROM?.trim() ?? "DropHunter <alerts@drophunter.ai>",
+  intelDigestEnabled: process.env.INTEL_DIGEST_ENABLED !== "false",
   stripeSecretKey: process.env.STRIPE_SECRET_KEY?.trim() ?? "",
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET?.trim() ?? "",
   stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY?.trim() ?? "",
@@ -83,6 +97,9 @@ export const ENV = {
   stripePricePro: process.env.STRIPE_PRICE_PRO?.trim() ?? "",
   stripePriceBusiness: process.env.STRIPE_PRICE_BUSINESS?.trim() ?? "",
   stripePriceAgency: process.env.STRIPE_PRICE_AGENCY?.trim() ?? "",
+  stripePriceCredits50: process.env.STRIPE_PRICE_CREDITS_50?.trim() ?? "",
+  stripePriceCredits100: process.env.STRIPE_PRICE_CREDITS_100?.trim() ?? "",
+  stripePriceCredits250: process.env.STRIPE_PRICE_CREDITS_250?.trim() ?? "",
 };
 
 export function isAiConfigured(): boolean {
