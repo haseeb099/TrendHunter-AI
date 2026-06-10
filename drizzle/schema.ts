@@ -18,6 +18,26 @@ export const users = mysqlTable("users", {
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   passwordHash: varchar("passwordHash", { length: 255 }),
+  planId: mysqlEnum("planId", ["trial", "starter", "pro", "business", "agency"])
+    .default("trial")
+    .notNull(),
+  planStatus: mysqlEnum("planStatus", ["active", "expired", "cancelled"])
+    .default("active")
+    .notNull(),
+  trialStartedAt: timestamp("trialStartedAt"),
+  trialEndsAt: timestamp("trialEndsAt"),
+  planStartedAt: timestamp("planStartedAt"),
+  planExpiresAt: timestamp("planExpiresAt"),
+  hasUsedTrial: boolean("hasUsedTrial").default(false).notNull(),
+  stripeCustomerId: varchar("stripeCustomerId", { length: 255 }),
+  stripeSubscriptionId: varchar("stripeSubscriptionId", { length: 255 }),
+  accountStatus: mysqlEnum("accountStatus", ["active", "deactivated", "flagged", "paused"])
+    .default("active")
+    .notNull(),
+  flagReason: varchar("flagReason", { length: 512 }),
+  adminNotes: text("adminNotes"),
+  limitOverrides: json("limitOverrides"),
+  pausedUntil: timestamp("pausedUntil"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -210,3 +230,86 @@ export const suppliers = mysqlTable("suppliers", {
 
 export type Supplier = typeof suppliers.$inferSelect;
 export type InsertSupplier = typeof suppliers.$inferInsert;
+
+// Admin audit trail
+export const adminAuditLog = mysqlTable("admin_audit_log", {
+  id: int("id").autoincrement().primaryKey(),
+  adminUserId: int("adminUserId").notNull(),
+  targetUserId: int("targetUserId").notNull(),
+  action: varchar("action", { length: 64 }).notNull(),
+  details: json("details"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type AdminAuditLog = typeof adminAuditLog.$inferSelect;
+
+// Editable subscription plans (super-admin controlled)
+export const planConfigs = mysqlTable("plan_configs", {
+  planId: mysqlEnum("planId", ["trial", "starter", "pro", "business", "agency"]).primaryKey(),
+  name: varchar("name", { length: 128 }).notNull(),
+  tagline: text("tagline"),
+  priceMonthly: float("priceMonthly").default(0).notNull(),
+  priceLabel: varchar("priceLabel", { length: 32 }).default("Free").notNull(),
+  billingPeriod: varchar("billingPeriod", { length: 64 }).default("per month").notNull(),
+  highlight: boolean("highlight").default(false).notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  trialDays: int("trialDays").default(3),
+  features: json("features").notNull(),
+  featureIds: json("featureIds").notNull(),
+  limits: json("limits").notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PlanConfigRow = typeof planConfigs.$inferSelect;
+
+export const platformSettings = mysqlTable("platform_settings", {
+  key: varchar("key", { length: 64 }).primaryKey(),
+  value: json("value").notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PlatformSetting = typeof platformSettings.$inferSelect;
+
+export const coupons = mysqlTable("coupons", {
+  id: int("id").autoincrement().primaryKey(),
+  code: varchar("code", { length: 32 }).notNull().unique(),
+  description: text("description"),
+  couponType: mysqlEnum("couponType", [
+    "grant_plan",
+    "extend_trial",
+    "extend_subscription",
+    "bonus_searches",
+    "discount_percent",
+  ]).notNull(),
+  value: float("value").notNull(),
+  grantPlanId: mysqlEnum("grantPlanId", ["trial", "starter", "pro", "business", "agency"]),
+  maxRedemptions: int("maxRedemptions").default(-1).notNull(),
+  redemptionCount: int("redemptionCount").default(0).notNull(),
+  expiresAt: timestamp("expiresAt"),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdByUserId: int("createdByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type Coupon = typeof coupons.$inferSelect;
+export type InsertCoupon = typeof coupons.$inferInsert;
+
+export const couponRedemptions = mysqlTable("coupon_redemptions", {
+  id: int("id").autoincrement().primaryKey(),
+  couponId: int("couponId").notNull(),
+  userId: int("userId").notNull(),
+  stripePromotionCodeId: varchar("stripePromotionCodeId", { length: 255 }),
+  redeemedAt: timestamp("redeemedAt").defaultNow().notNull(),
+});
+
+export type CouponRedemption = typeof couponRedemptions.$inferSelect;
+
+export const stripeWebhookEvents = mysqlTable("stripe_webhook_events", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: varchar("eventId", { length: 255 }).notNull().unique(),
+  eventType: varchar("eventType", { length: 128 }).notNull(),
+  processedAt: timestamp("processedAt").defaultNow().notNull(),
+});
+
+export type StripeWebhookEvent = typeof stripeWebhookEvents.$inferSelect;

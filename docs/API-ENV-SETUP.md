@@ -322,6 +322,35 @@ Copy this into your notes and tick when added:
 
 ---
 
+## Stripe billing (optional)
+
+Paid subscriptions via Stripe Checkout. When `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are set:
+
+1. Create Products + recurring Prices in Stripe Dashboard
+2. Map price IDs to env vars (`STRIPE_PRICE_STARTER`, `STRIPE_PRICE_PRO`, etc.)
+3. Register webhook endpoint: `https://your-domain/api/webhooks/stripe`
+4. Enable **Self-serve billing** in Admin → Settings
+
+| Variable | Purpose |
+|----------|---------|
+| `APP_URL` | Checkout success/cancel redirect base |
+| `STRIPE_SECRET_KEY` | Server API key |
+| `STRIPE_PUBLISHABLE_KEY` | Client (optional display) |
+| `STRIPE_WEBHOOK_SECRET` | Webhook signature verification |
+| `STRIPE_PRICE_*` | Plan → Price ID mapping |
+
+Local webhook forwarding:
+
+```bash
+stripe listen --forward-to localhost:3000/api/webhooks/stripe
+```
+
+Without Stripe, use coupons and admin plan assignment. Manual self-serve works when Stripe is unset and Admin enables self-serve billing.
+
+See also: [STRIPE-SETUP.md](./STRIPE-SETUP.md), [SPRINT-ROADMAP.md](./SPRINT-ROADMAP.md), [TRD.md](./TRD.md).
+
+---
+
 ## Where variables are read in code
 
 | File | What it loads |

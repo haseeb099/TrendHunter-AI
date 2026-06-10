@@ -9,6 +9,8 @@ import { registerStorageRoutes } from "./storageRoutes";
 import { serveStatic, setupVite } from "./vite";
 import { ENV } from "./env";
 import { validateEnvOnStartup } from "./validateEnv";
+import { registerStripeRoutes } from "../stripeRoutes";
+import { expireStaleTrials } from "../plans";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -31,9 +33,11 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 
 async function startServer() {
   validateEnvOnStartup();
+  expireStaleTrials().catch((err) => console.warn("[Plans] expireStaleTrials failed:", err));
 
   const app = express();
   const server = createServer(app);
+  registerStripeRoutes(app);
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageRoutes(app);

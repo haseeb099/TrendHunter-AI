@@ -63,6 +63,7 @@ export async function authenticateRequest(req: Request): Promise<User | null> {
 
   const user = await db.getUserByOpenId(session.openId);
   if (!user) return null;
+  if (user.accountStatus === "deactivated") return null;
 
   await db.touchUserLastSignedIn(user.openId);
   return user;

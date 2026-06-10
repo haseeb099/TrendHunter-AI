@@ -75,6 +75,14 @@ export const ENV = {
   freeRetailEnabled: process.env.FREE_RETAIL_ENABLED !== "false",
   /** Off by default until Shoptera REST search path is confirmed (optional). */
   shopteraEnabled: process.env.SHOPTERA_ENABLED === "true",
+  appUrl: process.env.APP_URL?.replace(/\/$/, "") ?? "http://localhost:3000",
+  stripeSecretKey: process.env.STRIPE_SECRET_KEY?.trim() ?? "",
+  stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET?.trim() ?? "",
+  stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY?.trim() ?? "",
+  stripePriceStarter: process.env.STRIPE_PRICE_STARTER?.trim() ?? "",
+  stripePricePro: process.env.STRIPE_PRICE_PRO?.trim() ?? "",
+  stripePriceBusiness: process.env.STRIPE_PRICE_BUSINESS?.trim() ?? "",
+  stripePriceAgency: process.env.STRIPE_PRICE_AGENCY?.trim() ?? "",
 };
 
 export function isAiConfigured(): boolean {

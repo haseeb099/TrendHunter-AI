@@ -1,4 +1,6 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import { PlanFeatureGate } from "@/components/workspace/PlanFeatureGate";
+import { usePlan } from "@/_core/hooks/usePlan";
 import ProductSearch from "./ProductSearch";
 import ProductValidation from "./ProductValidation";
 import CompetitorSpy from "./CompetitorSpy";
@@ -10,13 +12,51 @@ import AnalyticsDashboard from "./AnalyticsDashboard";
 import AIAgent from "./AIAgent";
 import ProductPipeline from "./ProductPipeline";
 import Watchlist from "./Watchlist";
+import Billing from "./Billing";
+import AccountSettings from "./AccountSettings";
+import { useEffect } from "react";
 import { useLocation } from "wouter";
-import { getActiveTab } from "@/config/dashboardNav";
+import { getActiveTab, getDashboardPath, type DashboardTabId } from "@/config/dashboardNav";
+import { ALWAYS_ACCESSIBLE_TABS, TAB_REQUIRED_FEATURE } from "@shared/plans";
 import NotFound from "./NotFound";
+import { Spinner } from "@/components/ui/spinner";
+
+function GatedContent({
+  tab,
+  children,
+}: {
+  tab: DashboardTabId;
+  children: React.ReactNode;
+}) {
+  const { canAccessTab, loading } = usePlan();
+
+  if (loading && !ALWAYS_ACCESSIBLE_TABS.includes(tab)) {
+    return (
+      <div className="flex justify-center py-24" role="status" aria-label="Loading workspace">
+        <Spinner className="w-8 h-8" />
+      </div>
+    );
+  }
+
+  if (ALWAYS_ACCESSIBLE_TABS.includes(tab)) return <>{children}</>;
+  if (!canAccessTab(tab)) {
+    const feature = TAB_REQUIRED_FEATURE[tab as keyof typeof TAB_REQUIRED_FEATURE];
+    return <PlanFeatureGate feature={feature} />;
+  }
+  return <>{children}</>;
+}
 
 export default function Dashboard() {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const activeTab = getActiveTab(location);
+  const { isRestricted, loading: planLoading } = usePlan();
+
+  useEffect(() => {
+    if (planLoading || !isRestricted || !activeTab) return;
+    if (!ALWAYS_ACCESSIBLE_TABS.includes(activeTab)) {
+      setLocation(getDashboardPath("billing"));
+    }
+  }, [isRestricted, activeTab, planLoading, setLocation]);
 
   if (activeTab === null) {
     return (
@@ -50,8 +90,16 @@ export default function Dashboard() {
         return <ProductPipeline />;
       case "watchlist":
         return <Watchlist />;
+      case "billing":
+        return <Billing />;
+      case "account":
+        return <AccountSettings />;
     }
   };
 
-  return <DashboardLayout>{renderContent()}</DashboardLayout>;
+  return (
+    <DashboardLayout>
+      <GatedContent tab={activeTab}>{renderContent()}</GatedContent>
+    </DashboardLayout>
+  );
 }

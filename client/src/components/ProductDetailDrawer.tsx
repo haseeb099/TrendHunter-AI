@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import {
-  Sheet,
-  SheetContent,
-  SheetTitle,
-  SheetDescription,
-} from "@/components/ui/sheet";
+  SidePanel,
+  SidePanelContent,
+  SidePanelFooter,
+} from "@/components/side-panel/SidePanel";
+import { SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ import {
   CheckCircle2,
   ExternalLink,
   Heart,
+  Lock,
   Package,
   Plus,
   Search,
@@ -31,7 +32,13 @@ import {
   Truck,
   Zap,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { usePlan } from "@/_core/hooks/usePlan";
+import { PlanFeatureGate } from "@/components/workspace/PlanFeatureGate";
+
+const drawerTabClass =
+  "side-panel-tab flex-1 text-[11px] sm:text-xs px-1.5 py-2 h-auto rounded-lg border-0 shadow-none bg-transparent data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground hover:data-[state=inactive]:bg-muted/50";
 
 export type { ProductDrawerTab };
 
@@ -65,6 +72,10 @@ export function ProductDetailDrawer({
   const [activeTab, setActiveTab] = useState<ProductDrawerTab>(initialTab);
   const [pipelineAdded, setPipelineAdded] = useState(false);
   const [savedToWatchlist, setSavedToWatchlist] = useState(false);
+  const { canAccess } = usePlan();
+  const canValidate = canAccess("validate");
+  const canSpy = canAccess("competitors");
+  const canOffers = canAccess("supplier_offers");
 
   const offersQuery = trpc.supplier.getOffersForProduct.useQuery(
     {
@@ -72,7 +83,7 @@ export function ProductDetailDrawer({
       title: product?.title ?? "",
       region: product?.region,
     },
-    { enabled: open && Boolean(product?.title) }
+    { enabled: open && Boolean(product?.title) && canOffers }
   );
 
   useEffect(() => {
@@ -124,8 +135,12 @@ export function ProductDetailDrawer({
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="product-drawer w-full sm:max-w-xl md:max-w-2xl p-0 gap-0 flex flex-col border-l border-border/80 [&>button]:z-30 [&>button]:text-white [&>button]:hover:bg-white/20 [&>button]:opacity-90">
+    <SidePanel open={open} onOpenChange={onOpenChange}>
+      <SidePanelContent
+        size="xl"
+        onClose={() => onOpenChange(false)}
+        className="product-drawer"
+      >
         <SheetTitle className="sr-only">{product.title}</SheetTitle>
         <SheetDescription className="sr-only">
           Product details, suppliers, validation, and profit tools
@@ -134,7 +149,11 @@ export function ProductDetailDrawer({
         {/* Hero */}
         <div className="product-drawer-hero relative shrink-0">
           {product.image ? (
-            <img src={product.image} alt="" className="absolute inset-0 w-full h-full object-cover" />
+            <img
+              src={product.image}
+              alt={product.title}
+              className="absolute inset-0 w-full h-full object-cover"
+            />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center bg-muted/50">
               <Search className="w-12 h-12 text-muted-foreground/25" />
@@ -184,24 +203,31 @@ export function ProductDetailDrawer({
           onValueChange={(v) => setActiveTab(v as ProductDrawerTab)}
           className="flex flex-col flex-1 min-h-0"
         >
-          <div className="shrink-0 border-b border-border bg-card/80 backdrop-blur-sm px-4 pt-2">
-            <TabsList className="w-full h-auto p-1 bg-muted/50 grid grid-cols-5 gap-0.5">
-              <TabsTrigger value="overview" className="text-[11px] sm:text-xs px-1.5 py-2">
+          <div className="side-panel-tabs shrink-0 !px-4 !py-2">
+            <TabsList className="w-full h-auto p-1 bg-transparent grid grid-cols-5 gap-1 border-0 shadow-none">
+              <TabsTrigger value="overview" className={drawerTabClass}>
                 Overview
               </TabsTrigger>
-              <TabsTrigger value="suppliers" className="text-[11px] sm:text-xs px-1.5 py-2">
+              <TabsTrigger value="suppliers" disabled={!canOffers} className={drawerTabClass}>
                 Suppliers
+                {!canOffers ? <Lock className="w-3 h-3 opacity-60" /> : null}
               </TabsTrigger>
-              <TabsTrigger value="validate" className="text-[11px] sm:text-xs px-1.5 py-2 gap-1">
+              <TabsTrigger
+                value="validate"
+                disabled={!canValidate}
+                className={cn(drawerTabClass, "gap-1")}
+              >
                 <Zap className="w-3 h-3 hidden sm:inline" />
                 Validate
+                {!canValidate ? <Lock className="w-3 h-3 opacity-60" /> : null}
               </TabsTrigger>
-              <TabsTrigger value="profit" className="text-[11px] sm:text-xs px-1.5 py-2 gap-1">
+              <TabsTrigger value="profit" className={cn(drawerTabClass, "gap-1")}>
                 <Calculator className="w-3 h-3 hidden sm:inline" />
                 Profit
               </TabsTrigger>
-              <TabsTrigger value="competitors" className="text-[11px] sm:text-xs px-1.5 py-2">
+              <TabsTrigger value="competitors" disabled={!canSpy} className={drawerTabClass}>
                 Spy
+                {!canSpy ? <Lock className="w-3 h-3 opacity-60" /> : null}
               </TabsTrigger>
             </TabsList>
           </div>
@@ -237,7 +263,7 @@ export function ProductDetailDrawer({
                 </p>
               ) : null}
 
-              {bestOffer ? (
+              {canOffers && bestOffer ? (
                 <div className="product-offer-highlight">
                   <p className="text-xs font-semibold uppercase tracking-wider text-primary mb-1">
                     Best landed offer
@@ -260,14 +286,19 @@ export function ProductDetailDrawer({
                     View all offers
                   </Button>
                 </div>
-              ) : offersQuery.isLoading ? (
+              ) : canOffers && offersQuery.isLoading ? (
                 <div className="flex justify-center py-6">
                   <Spinner />
                 </div>
               ) : null}
 
               <div className="grid grid-cols-2 gap-2 pt-1">
-                <Button variant="outline" size="sm" onClick={() => setActiveTab("validate")}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!canValidate}
+                  onClick={() => canValidate && setActiveTab("validate")}
+                >
                   <ShieldCheck className="w-3.5 h-3.5 mr-2" />
                   AI validate
                 </Button>
@@ -279,16 +310,19 @@ export function ProductDetailDrawer({
             </TabsContent>
 
             <TabsContent value="suppliers" className="mt-0 space-y-3">
-              {offersQuery.error ? (
+              {!canOffers ? (
+                <PlanFeatureGate feature="supplier_offers" />
+              ) : null}
+              {canOffers && offersQuery.error ? (
                 <Alert variant="destructive" className="text-sm">
                   {offersQuery.error.message}
                 </Alert>
               ) : null}
-              {offersQuery.isLoading ? (
+              {canOffers && offersQuery.isLoading ? (
                 <div className="flex justify-center py-12">
                   <Spinner />
                 </div>
-              ) : offersQuery.data && offersQuery.data.length > 0 ? (
+              ) : canOffers && offersQuery.data && offersQuery.data.length > 0 ? (
                 offersQuery.data.map((offer, index) => (
                   <div
                     key={offer.id}
@@ -380,16 +414,20 @@ export function ProductDetailDrawer({
             </TabsContent>
 
             <TabsContent value="validate" className="mt-0">
-              <ProductValidationPanel
-                productTitle={product.title}
-                platform={product.platform}
-                price={product.price}
-                compact
-                pipelinePending={pipelinePending}
-                onAddToPipeline={({ validation }) =>
-                  handleValidationPipeline({ validation, offer: bestOffer })
-                }
-              />
+              {canValidate ? (
+                <ProductValidationPanel
+                  productTitle={product.title}
+                  platform={product.platform}
+                  price={product.price}
+                  compact
+                  pipelinePending={pipelinePending}
+                  onAddToPipeline={({ validation }) =>
+                    handleValidationPipeline({ validation, offer: bestOffer })
+                  }
+                />
+              ) : (
+                <PlanFeatureGate feature="validate" />
+              )}
             </TabsContent>
 
             <TabsContent value="profit" className="mt-0">
@@ -402,14 +440,17 @@ export function ProductDetailDrawer({
             </TabsContent>
 
             <TabsContent value="competitors" className="mt-0">
-              <ProductCompetitorPanel keyword={product.title} sourceUrl={product.sourceUrl} />
+              {canSpy ? (
+                <ProductCompetitorPanel keyword={product.title} sourceUrl={product.sourceUrl} />
+              ) : (
+                <PlanFeatureGate feature="competitors" />
+              )}
             </TabsContent>
           </div>
         </Tabs>
 
-        {/* Sticky actions — stay on page */}
-        <div className="product-drawer-footer">
-          <div className="flex gap-2">
+        <SidePanelFooter className="product-drawer-footer !px-5">
+          <div className="flex gap-2 w-full">
             {onAddToWatchlist ? (
               <Button
                 variant="outline"
@@ -443,14 +484,19 @@ export function ProductDetailDrawer({
             ) : null}
             {product.sourceUrl ? (
               <Button size="sm" variant="ghost" className="px-3" asChild>
-                <a href={product.sourceUrl} target="_blank" rel="noopener noreferrer">
+                <a
+                  href={product.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Open product source"
+                >
                   <ExternalLink className="w-4 h-4" />
                 </a>
               </Button>
             ) : null}
           </div>
-        </div>
-      </SheetContent>
-    </Sheet>
+        </SidePanelFooter>
+      </SidePanelContent>
+    </SidePanel>
   );
 }

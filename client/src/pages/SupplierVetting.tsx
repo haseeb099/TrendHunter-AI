@@ -1,9 +1,7 @@
 import { useState } from "react";
-import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -12,12 +10,24 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { PageHeader } from "@/components/PageHeader";
-import { MapPin, Clock, Package, Plus, Pencil, Trash2, CheckCircle } from "lucide-react";
+import { EmptyState } from "@/components/EmptyState";
+import { FieldLabel } from "@/components/workspace/FieldLabel";
+import { getDashboardPath } from "@/config/dashboardNav";
+import { MapPin, Clock, Package, Plus, Pencil, Trash2, CheckCircle, Truck } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Spinner } from "@/components/ui/spinner";
+import { useLocation } from "wouter";
+import { cn } from "@/lib/utils";
+
+function reliabilityBadgeClass(score: number): string {
+  if (score >= 80) return "bg-success/10 text-success border-success/20";
+  if (score >= 50) return "bg-warning/10 text-warning border-warning/20";
+  return "bg-destructive/10 text-destructive border-destructive/20";
+}
 
 export default function SupplierVetting() {
+  const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -101,27 +111,35 @@ export default function SupplierVetting() {
     }
   };
 
+  const supplierCount = suppliersQuery.data?.length ?? 0;
+  const vettedCount = suppliersQuery.data?.filter((s) => s.sampleOrdered).length ?? 0;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <PageHeader
         title="Supplier contacts"
-        description="Track suppliers you vet manually. Live CJ & AliExpress offers appear on product detail in Search."
+        description="Track suppliers you vet manually. Live CJ and AliExpress offers appear on product detail in Discover."
         actions={
           <Button onClick={openCreate}>
-            <Plus className="w-4 h-4 mr-2" />
+            <Plus className="w-4 h-4" />
             Add supplier
           </Button>
         }
       />
 
       {offersStatus.data ? (
-        <div className="flex gap-2 flex-wrap">
-          <Badge variant="outline">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline" className="gap-1.5 py-1">
+            <Truck className="w-3 h-3" />
             CJ: {offersStatus.data.cj.mode}
           </Badge>
-          <Badge variant="outline">
+          <Badge variant="outline" className="gap-1.5 py-1">
+            <Truck className="w-3 h-3" />
             AliExpress: {offersStatus.data.aliexpress.mode}
           </Badge>
+          <span className="text-xs text-muted-foreground">
+            {supplierCount} contacts · {vettedCount} samples ordered
+          </span>
         </div>
       ) : null}
 
@@ -132,25 +150,19 @@ export default function SupplierVetting() {
       ) : suppliersQuery.data && suppliersQuery.data.length > 0 ? (
         <div className="grid gap-4">
           {suppliersQuery.data.map((supplier) => (
-            <Card key={supplier.id} className="card-elevated p-6">
+            <article key={supplier.id} className="card-elevated p-5 sm:p-6">
               <div className="flex items-start justify-between mb-4 gap-4">
-                <div>
-                  <h3 className="text-lg font-semibold mb-1">{supplier.name}</h3>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <MapPin className="w-4 h-4" />
-                    {supplier.country || "Unknown"}
+                <div className="min-w-0">
+                  <h3 className="font-display text-base font-semibold truncate">{supplier.name}</h3>
+                  <div className="flex items-center gap-1.5 text-sm text-muted-foreground mt-1">
+                    <MapPin className="w-3.5 h-3.5 shrink-0" />
+                    {supplier.country || "Unknown region"}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                   {supplier.reliabilityScore != null && supplier.reliabilityScore > 0 ? (
-                    <Badge
-                      className={
-                        supplier.reliabilityScore >= 80
-                          ? "bg-green-500/10 text-green-400"
-                          : "bg-yellow-500/10 text-yellow-400"
-                      }
-                    >
-                      {supplier.reliabilityScore}% Reliable
+                    <Badge className={reliabilityBadgeClass(supplier.reliabilityScore)}>
+                      {supplier.reliabilityScore}% reliable
                     </Badge>
                   ) : (
                     <Badge variant="outline">Not scored</Badge>
@@ -168,33 +180,38 @@ export default function SupplierVetting() {
                 </div>
               </div>
 
-              <div className="grid md:grid-cols-4 gap-4 mb-4 p-4 bg-muted rounded-lg">
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Shipping Time</p>
-                  <div className="flex items-center gap-1 font-semibold">
-                    <Clock className="w-4 h-4" />
-                    {supplier.shippingDaysMin ?? 0}-{supplier.shippingDaysMax ?? 0} days
+              <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <div className="product-metric-tile">
+                  <p className="metric-label mb-1">Shipping</p>
+                  <div className="flex items-center gap-1.5 font-semibold text-sm">
+                    <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+                    {supplier.shippingDaysMin ?? 0}–{supplier.shippingDaysMax ?? 0} days
                   </div>
                 </div>
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">MOQ</p>
-                  <div className="flex items-center gap-1 font-semibold">
-                    <Package className="w-4 h-4" />
+                <div className="product-metric-tile">
+                  <p className="metric-label mb-1">MOQ</p>
+                  <div className="flex items-center gap-1.5 font-semibold text-sm">
+                    <Package className="w-3.5 h-3.5 text-muted-foreground" />
                     {supplier.moq ?? "—"} units
                   </div>
                 </div>
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Platform</p>
-                  <p className="font-semibold">{supplier.platform || "Multi"}</p>
+                <div className="product-metric-tile">
+                  <p className="metric-label mb-1">Platform</p>
+                  <p className="font-semibold text-sm">{supplier.platform || "Multi-channel"}</p>
                 </div>
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Sample</p>
-                  <p className="font-semibold">
+                <div className="product-metric-tile">
+                  <p className="metric-label mb-1">Sample</p>
+                  <p
+                    className={cn(
+                      "font-semibold text-sm flex items-center gap-1",
+                      supplier.sampleOrdered ? "text-success" : "text-muted-foreground"
+                    )}
+                  >
                     {supplier.sampleOrdered ? (
-                      <span className="text-green-400 flex items-center gap-1">
-                        <CheckCircle className="w-4 h-4" />
+                      <>
+                        <CheckCircle className="w-3.5 h-3.5" />
                         Ordered
-                      </span>
+                      </>
                     ) : (
                       "Not ordered"
                     )}
@@ -202,7 +219,9 @@ export default function SupplierVetting() {
                 </div>
               </div>
 
-              {supplier.notes && <p className="text-sm text-muted-foreground mb-4">{supplier.notes}</p>}
+              {supplier.notes ? (
+                <p className="text-sm text-muted-foreground mb-4 leading-relaxed">{supplier.notes}</p>
+              ) : null}
 
               {!supplier.sampleOrdered ? (
                 <Button
@@ -211,16 +230,22 @@ export default function SupplierVetting() {
                   onClick={() => vetMutation.mutate({ supplierId: supplier.id })}
                   disabled={vetMutation.isPending}
                 >
-                  Order sample
+                  Mark sample ordered
                 </Button>
               ) : null}
-            </Card>
+            </article>
           ))}
         </div>
       ) : (
-        <Card className="card-elevated p-12 text-center text-muted-foreground">
-          No suppliers yet. Add your first supplier to start vetting.
-        </Card>
+        <EmptyState
+          icon={Truck}
+          title="No suppliers yet"
+          description="Add contacts you discover on Alibaba, CJ, or trade shows. Live warehouse offers also appear when browsing products in Discover."
+          action={{
+            label: "Browse Discover",
+            onClick: () => setLocation(getDashboardPath("search")),
+          }}
+        />
       )}
 
       <Dialog open={dialogOpen} onOpenChange={(open) => !open && resetForm()}>
@@ -230,26 +255,26 @@ export default function SupplierVetting() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label>Name</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} />
+              <FieldLabel>Name</FieldLabel>
+              <Input value={name} onChange={(e) => setName(e.target.value)} className="input-elegant" />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Country</Label>
-                <Input value={country} onChange={(e) => setCountry(e.target.value)} />
+                <FieldLabel>Country</FieldLabel>
+                <Input value={country} onChange={(e) => setCountry(e.target.value)} className="input-elegant" />
               </div>
               <div className="space-y-2">
-                <Label>Platform</Label>
-                <Input value={platform} onChange={(e) => setPlatform(e.target.value)} />
+                <FieldLabel>Platform</FieldLabel>
+                <Input value={platform} onChange={(e) => setPlatform(e.target.value)} className="input-elegant" />
               </div>
             </div>
             <div className="space-y-2">
-              <Label>MOQ</Label>
-              <Input type="number" value={moq} onChange={(e) => setMoq(e.target.value)} />
+              <FieldLabel>MOQ</FieldLabel>
+              <Input type="number" value={moq} onChange={(e) => setMoq(e.target.value)} className="input-elegant" />
             </div>
             <div className="space-y-2">
-              <Label>Notes</Label>
-              <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
+              <FieldLabel>Notes</FieldLabel>
+              <Input value={notes} onChange={(e) => setNotes(e.target.value)} className="input-elegant" />
             </div>
           </div>
           <DialogFooter>
@@ -261,7 +286,7 @@ export default function SupplierVetting() {
               disabled={createMutation.isPending || updateMutation.isPending}
             >
               {(createMutation.isPending || updateMutation.isPending) && (
-                <Spinner className="w-4 h-4 mr-2" />
+                <Spinner className="w-4 h-4" />
               )}
               Save
             </Button>

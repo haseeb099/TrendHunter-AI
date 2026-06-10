@@ -1,12 +1,33 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router, protectedProcedure } from "./_core/trpc";
+import {
+  authenticatedProcedure,
+  publicProcedure,
+  router,
+  protectedProcedure,
+  getCtxUser,
+} from "./_core/trpc";
+import {
+  aiProcedure,
+  featureProcedure,
+  pipelineCreateProcedure,
+  searchProcedure,
+  watchlistAddProcedure,
+} from "./_core/planMiddleware";
+import { billingRouter } from "./billingRouter";
+import { adminRouter } from "./adminRouter";
+import { assertSearchQuota, buildSubscriptionInfo, createTrialFields } from "./plans";
+import { getPlatformSettings } from "./planCatalog";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { nanoid } from "nanoid";
 import { hashPassword, verifyPassword } from "./_core/password";
 import { createSessionToken, setSessionCookie } from "./_core/session";
+import { normalizeEmail } from "./_core/normalizeEmail";
+import { assertAuthRateLimit } from "./_core/rateLimit";
+import { assertUserOwnsUploadKey, buildUserUploadKey } from "./_core/uploadKeys";
+import { toPublicUser } from "./_core/userPublic";
 import {
   getSavedSearches,
   createSavedSearch,
@@ -23,6 +44,7 @@ import {
   deleteChatSession,
   getChatMessages,
   addChatMessage,
+  chatSessionBelongsToUser,
   getProfitCalculations,
   saveProfitCalculation,
   deleteProfitCalculation,
@@ -31,8 +53,8 @@ import {
   updateSupplier,
   deleteSupplier,
   getUserByEmail,
-  countUsers,
   createUser,
+  updateUserProfile,
   getFilterPresets,
   saveFilterPreset,
   deleteFilterPreset,
@@ -73,8 +95,14 @@ const productHuntFiltersSchema = z
 
 export const appRouter = router({
   system: systemRouter,
+  billing: billingRouter,
+  admin: adminRouter,
   auth: router({
-    me: publicProcedure.query((opts) => opts.ctx.user),
+    me: publicProcedure.query(async (opts) => {
+      if (!opts.ctx.user) return null;
+      const subscription = await buildSubscriptionInfo(opts.ctx.user);
+      return { ...toPublicUser(opts.ctx.user), subscription };
+    }),
     register: publicProcedure
       .input(
         z.object({
@@ -84,21 +112,32 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ ctx, input }) => {
-        const existing = await getUserByEmail(input.email);
+        assertAuthRateLimit(ctx.req, input.email);
+        const settings = await getPlatformSettings();
+        if (settings.registration_enabled === false) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "New registrations are temporarily closed.",
+          });
+        }
+
+        const email = normalizeEmail(input.email);
+        const existing = await getUserByEmail(email);
         if (existing) {
           throw new TRPCError({ code: "CONFLICT", message: "Email already registered" });
         }
 
         const openId = nanoid();
-        const isFirstUser = (await countUsers()) === 0;
+        const now = new Date();
         const user = await createUser({
           openId,
-          email: input.email,
+          email,
           name: input.name ?? input.email.split("@")[0] ?? "User",
           passwordHash: hashPassword(input.password),
           loginMethod: "local",
-          role: isFirstUser ? "admin" : "user",
-          lastSignedIn: new Date(),
+          role: "user",
+          lastSignedIn: now,
+          ...(await createTrialFields(now)),
         });
 
         if (!user) {
@@ -107,7 +146,7 @@ export const appRouter = router({
 
         const token = await createSessionToken(user.openId, user.name ?? "");
         setSessionCookie(ctx.req, ctx.res, token);
-        return user;
+        return toPublicUser(user);
       }),
     login: publicProcedure
       .input(
@@ -117,31 +156,66 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ ctx, input }) => {
-        const user = await getUserByEmail(input.email);
+        assertAuthRateLimit(ctx.req, input.email);
+        const user = await getUserByEmail(normalizeEmail(input.email));
         if (!user?.passwordHash || !verifyPassword(input.password, user.passwordHash)) {
           throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid email or password" });
+        }
+        if (user.accountStatus === "deactivated") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "This account has been deactivated. Contact support.",
+          });
         }
 
         const token = await createSessionToken(user.openId, user.name ?? "");
         setSessionCookie(ctx.req, ctx.res, token);
-        return user;
+        return toPublicUser(user);
       }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
+
+    updateProfile: authenticatedProcedure
+      .input(z.object({ name: z.string().min(1).max(128) }))
+      .mutation(async ({ ctx, input }) => {
+        await updateUserProfile(ctx.user.id, { name: input.name.trim() });
+        const fresh = await getUserByEmail(ctx.user.email ?? "");
+        if (!fresh) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+        const subscription = await buildSubscriptionInfo(fresh);
+        return { ...toPublicUser(fresh), subscription };
+      }),
+
+    changePassword: authenticatedProcedure
+      .input(
+        z.object({
+          currentPassword: z.string().min(1),
+          newPassword: z.string().min(8, "Password must be at least 8 characters"),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const user = await getUserByEmail(ctx.user.email ?? "");
+        if (!user?.passwordHash || !verifyPassword(input.currentPassword, user.passwordHash)) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "Current password is incorrect" });
+        }
+        await updateUserProfile(ctx.user.id, { passwordHash: hashPassword(input.newPassword) });
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+        return { success: true as const, requireReLogin: true as const };
+      }),
   }),
 
   // Search & Discovery
   search: router({
-    getSavedSearches: protectedProcedure.query(({ ctx }) => getSavedSearches(ctx.user.id)),
+    getSavedSearches: protectedProcedure.query(({ ctx }) => getSavedSearches(getCtxUser(ctx).id)),
     saveSearch: protectedProcedure
       .input(z.object({ query: z.string(), filters: z.unknown().optional() }))
-      .mutation(({ ctx, input }) => createSavedSearch(ctx.user.id, input.query, input.filters)),
+      .mutation(({ ctx, input }) => createSavedSearch(getCtxUser(ctx).id, input.query, input.filters)),
     deleteSavedSearch: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(({ ctx, input }) => deleteSavedSearch(input.id, ctx.user.id)),
+      .mutation(({ ctx, input }) => deleteSavedSearch(input.id, getCtxUser(ctx).id)),
     getProviderStatus: protectedProcedure.query(() => getSearchProviderStatus()),
     getFilterOptions: protectedProcedure.query(() => ({
       regions: getSupportedRegionOptions(),
@@ -155,16 +229,16 @@ export const appRouter = router({
       supportedRegions: ENV.supportedRegions,
       regionLabels: REGION_LABELS,
     })),
-    getFilterPresets: protectedProcedure.query(({ ctx }) => getFilterPresets(ctx.user.id)),
-    saveFilterPreset: protectedProcedure
+    getFilterPresets: protectedProcedure.query(({ ctx }) => getFilterPresets(getCtxUser(ctx).id)),
+    saveFilterPreset: featureProcedure("filter_presets")
       .input(z.object({ name: z.string().min(1), filters: productHuntFiltersSchema }))
       .mutation(({ ctx, input }) =>
-        saveFilterPreset(ctx.user.id, input.name, (input.filters ?? {}) as ProductHuntFilters)
+        saveFilterPreset(getCtxUser(ctx).id, input.name, (input.filters ?? {}) as ProductHuntFilters)
       ),
     deleteFilterPreset: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(({ ctx, input }) => deleteFilterPreset(input.id, ctx.user.id)),
-    searchProducts: protectedProcedure
+      .mutation(({ ctx, input }) => deleteFilterPreset(input.id, getCtxUser(ctx).id)),
+    searchProducts: searchProcedure()
       .input(
         z.object({
           query: z.string().min(1),
@@ -172,12 +246,17 @@ export const appRouter = router({
           filters: productHuntFiltersSchema,
         })
       )
-      .query(async ({ input }) => {
-        return runProductSearch(
+      .query(async ({ ctx, input }) => {
+        const results = await runProductSearch(
           input.query,
           input.platform,
           input.filters as ProductHuntFilters | undefined
         );
+        await recordUserEvent(getCtxUser(ctx).id, "search_query", {
+          query: input.query,
+          platform: input.platform,
+        });
+        return results;
       }),
   }),
 
@@ -213,7 +292,10 @@ export const appRouter = router({
     getStatus: protectedProcedure.query(() => getStorageStatus()),
     getUrl: protectedProcedure
       .input(z.object({ key: z.string().min(1) }))
-      .query(({ input }) => storageGet(input.key)),
+      .query(({ ctx, input }) => {
+        assertUserOwnsUploadKey(getCtxUser(ctx).id, input.key);
+        return storageGet(input.key);
+      }),
     uploadFile: protectedProcedure
       .input(
         z.object({
@@ -223,21 +305,23 @@ export const appRouter = router({
           folder: z.string().max(64).optional(),
         })
       )
-      .mutation(async ({ input }) => {
-        const safeName = input.filename.replace(/[^a-zA-Z0-9._-]/g, "_");
-        const folder = (input.folder ?? "uploads").replace(/[^a-zA-Z0-9/_-]/g, "");
+      .mutation(async ({ ctx, input }) => {
+        const safeName =
+          input.filename.replace(/[^a-zA-Z0-9._-]/g, "_").replace(/^\.+/, "") || "file";
+        const folder = (input.folder ?? "uploads").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64) || "uploads";
         const buffer = Buffer.from(input.dataBase64, "base64");
         if (buffer.length > 5 * 1024 * 1024) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "File exceeds 5 MB limit" });
         }
-        return storagePut(`${folder}/${safeName}`, buffer, input.contentType);
+        const key = buildUserUploadKey(getCtxUser(ctx).id, folder, safeName);
+        return storagePut(key, buffer, input.contentType);
       }),
   }),
 
   // Watchlist
   watchlist: router({
-    getWatchlist: protectedProcedure.query(({ ctx }) => getWatchlist(ctx.user.id)),
-    addToWatchlist: protectedProcedure
+    getWatchlist: protectedProcedure.query(({ ctx }) => getWatchlist(getCtxUser(ctx).id)),
+    addToWatchlist: watchlistAddProcedure()
       .input(
         z.object({
           productId: z.string(),
@@ -252,17 +336,17 @@ export const appRouter = router({
           notes: z.string().optional(),
         })
       )
-      .mutation(({ ctx, input }) => addToWatchlist({ userId: ctx.user.id, ...input })),
+      .mutation(({ ctx, input }) => addToWatchlist({ userId: getCtxUser(ctx).id, ...input })),
     removeFromWatchlist: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(({ ctx, input }) => removeFromWatchlist(input.id, ctx.user.id)),
+      .mutation(({ ctx, input }) => removeFromWatchlist(input.id, getCtxUser(ctx).id)),
   }),
 
   // Product Validation (AI-powered)
   validate: router({
-    validateProduct: protectedProcedure
+    validateProduct: aiProcedure("validate")
       .input(z.object({ productTitle: z.string(), platform: z.string(), price: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         // Use LLM to generate validation scores
         const prompt = `Analyze this product for dropshipping viability:
 Product: ${input.productTitle}
@@ -304,28 +388,35 @@ Also include brief reasoning for each score.`;
 
         const content = response.choices[0]?.message.content;
         if (!content || typeof content !== "string") throw new Error("No response from LLM");
+        await recordUserEvent(getCtxUser(ctx).id, "ai_call", { feature: "validate" });
         return JSON.parse(content);
       }),
   }),
 
   // Competitor Spy
   competitor: router({
-    analyzeCompetitor: protectedProcedure
+    analyzeCompetitor: aiProcedure("competitors")
       .input(
         z.object({
           url: z.string().optional(),
           keyword: z.string().optional(),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const keyword = input.keyword?.trim() ?? "";
         const url = input.url?.trim() ?? "";
 
         let marketplaceContext = "";
         if (keyword) {
           try {
+            await assertSearchQuota(getCtxUser(ctx));
             const searchResult = await runProductSearch(keyword, "all", {
               sort: "price_asc",
+            });
+            await recordUserEvent(getCtxUser(ctx).id, "search_query", {
+              query: keyword,
+              platform: "all",
+              source: "competitors",
             });
             const top = searchResult.results.slice(0, 6);
             if (top.length > 0) {
@@ -394,6 +485,7 @@ Provide competitive intelligence in JSON format:
         const parsed =
           content && typeof content === "string" ? JSON.parse(content) : { position: "Analysis complete" };
 
+        await recordUserEvent(getCtxUser(ctx).id, "ai_call", { feature: "competitors" });
         return {
           analysis: parsed,
           timestamp: new Date(),
@@ -403,7 +495,7 @@ Provide competitive intelligence in JSON format:
 
   // Profit Calculator
   profit: router({
-    getProfitCalculations: protectedProcedure.query(({ ctx }) => getProfitCalculations(ctx.user.id)),
+    getProfitCalculations: protectedProcedure.query(({ ctx }) => getProfitCalculations(getCtxUser(ctx).id)),
     calculateProfit: protectedProcedure
       .input(
         z.object({
@@ -423,7 +515,7 @@ Provide competitive intelligence in JSON format:
         const breakEvenAdSpend = input.sellingPrice - (input.productCost + input.shippingCost + input.platformFee + input.vatDuties);
 
         const calc = {
-          userId: ctx.user.id,
+          userId: getCtxUser(ctx).id,
           ...input,
           netProfit,
           roi,
@@ -435,12 +527,12 @@ Provide competitive intelligence in JSON format:
       }),
     deleteProfitCalculation: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(({ ctx, input }) => deleteProfitCalculation(input.id, ctx.user.id)),
+      .mutation(({ ctx, input }) => deleteProfitCalculation(input.id, getCtxUser(ctx).id)),
   }),
 
   // Supplier Vetting
   supplier: router({
-    getSuppliers: protectedProcedure.query(({ ctx }) => getSuppliers(ctx.user.id)),
+    getSuppliers: protectedProcedure.query(({ ctx }) => getSuppliers(getCtxUser(ctx).id)),
     createSupplier: protectedProcedure
       .input(
         z.object({
@@ -457,24 +549,44 @@ Provide competitive intelligence in JSON format:
           notes: z.string().optional(),
         })
       )
-      .mutation(({ ctx, input }) => createSupplier({ userId: ctx.user.id, ...input })),
+      .mutation(({ ctx, input }) => createSupplier({ userId: getCtxUser(ctx).id, ...input })),
     updateSupplier: protectedProcedure
-      .input(z.object({ id: z.number(), data: z.unknown() }))
-      .mutation(({ ctx, input }) => updateSupplier(input.id, ctx.user.id, input.data as any)),
+      .input(
+        z.object({
+          id: z.number(),
+          data: z.object({
+            name: z.string().optional(),
+            country: z.string().optional(),
+            platform: z.string().optional(),
+            shippingDaysMin: z.number().optional(),
+            shippingDaysMax: z.number().optional(),
+            moq: z.number().optional(),
+            reliabilityScore: z.number().optional(),
+            communicationScore: z.number().optional(),
+            qualityScore: z.number().optional(),
+            profileUrl: z.string().optional(),
+            notes: z.string().optional(),
+            sampleOrdered: z.boolean().optional(),
+            sampleStatus: z.string().optional(),
+            sampleOrderDate: z.date().optional(),
+          }),
+        })
+      )
+      .mutation(({ ctx, input }) => updateSupplier(input.id, getCtxUser(ctx).id, input.data)),
     deleteSupplier: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(({ ctx, input }) => deleteSupplier(input.id, ctx.user.id)),
+      .mutation(({ ctx, input }) => deleteSupplier(input.id, getCtxUser(ctx).id)),
     vetSupplier: protectedProcedure
       .input(z.object({ supplierId: z.number() }))
       .mutation(async ({ ctx, input }) => {
-        await updateSupplier(input.supplierId, ctx.user.id, {
+        await updateSupplier(input.supplierId, getCtxUser(ctx).id, {
           sampleOrdered: true,
           sampleStatus: "ordered",
           sampleOrderDate: new Date(),
         });
         return { status: "sample_ordered", estimatedDelivery: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) };
       }),
-    getOffersForProduct: protectedProcedure
+    getOffersForProduct: featureProcedure("supplier_offers")
       .input(
         z.object({
           productId: z.string().optional(),
@@ -494,9 +606,9 @@ Provide competitive intelligence in JSON format:
 
   // Social Media Kit
   social: router({
-    generateHashtags: protectedProcedure
+    generateHashtags: aiProcedure("social")
       .input(z.object({ productTitle: z.string(), niche: z.string().optional() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const prompt = `Generate 30 trending hashtags for this product on TikTok and Instagram:
 Product: ${input.productTitle}
 ${input.niche ? `Niche: ${input.niche}` : ""}
@@ -527,11 +639,12 @@ Return as a JSON array of hashtag strings (without the # symbol).`;
 
         const content = response.choices[0]?.message.content;
         if (!content || typeof content !== "string") throw new Error("No response from LLM");
+        await recordUserEvent(getCtxUser(ctx).id, "ai_call", { feature: "social" });
         return JSON.parse(content);
       }),
-    generateAdCopy: protectedProcedure
+    generateAdCopy: aiProcedure("social")
       .input(z.object({ productTitle: z.string(), productBenefit: z.string() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const prompt = `Write 5 compelling ad copy variations for this product:
 Product: ${input.productTitle}
 Key Benefit: ${input.productBenefit}
@@ -562,11 +675,12 @@ Return as JSON with array of copy strings. Each should be 50-100 characters, att
 
         const content = response.choices[0]?.message.content;
         if (!content || typeof content !== "string") throw new Error("No response from LLM");
+        await recordUserEvent(getCtxUser(ctx).id, "ai_call", { feature: "social" });
         return JSON.parse(content);
       }),
-    generateCaption: protectedProcedure
+    generateCaption: aiProcedure("social")
       .input(z.object({ productTitle: z.string(), platform: z.enum(["tiktok", "instagram"]) }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const prompt = `Write a viral ${input.platform} caption for this product:
 Product: ${input.productTitle}
 
@@ -576,15 +690,16 @@ Make it engaging, include relevant emojis, and a hook that stops the scroll. Ret
           messages: [{ role: "user", content: prompt }],
         });
 
+        await recordUserEvent(getCtxUser(ctx).id, "ai_call", { feature: "social" });
         return { caption: response.choices[0]?.message.content || "" };
       }),
   }),
 
   // Market Gap Finder
   marketgap: router({
-    findGaps: protectedProcedure
+    findGaps: aiProcedure("marketgap")
       .input(z.object({ niche: z.string(), platforms: z.array(z.string()) }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const prompt = `Analyze market gaps in the "${input.niche}" niche across ${input.platforms.join(", ")}:
 
 Identify:
@@ -630,14 +745,15 @@ Return as JSON with gaps array, each containing: title, opportunity, demand_leve
 
         const content = response.choices[0]?.message.content;
         if (!content || typeof content !== "string") throw new Error("No response from LLM");
+        await recordUserEvent(getCtxUser(ctx).id, "ai_call", { feature: "marketgap" });
         return JSON.parse(content);
       }),
   }),
 
   // Pipeline Tracker
   pipeline: router({
-    getPipelineItems: protectedProcedure.query(({ ctx }) => getPipelineItems(ctx.user.id)),
-    createPipelineItem: protectedProcedure
+    getPipelineItems: protectedProcedure.query(({ ctx }) => getPipelineItems(getCtxUser(ctx).id)),
+    createPipelineItem: pipelineCreateProcedure()
       .input(
         z.object({
           productId: z.string().optional(),
@@ -656,40 +772,44 @@ Return as JSON with gaps array, each containing: title, opportunity, demand_leve
           notes: z.string().optional(),
         })
       )
-      .mutation(({ ctx, input }) => createPipelineItem({ userId: ctx.user.id, ...input })),
+      .mutation(({ ctx, input }) => createPipelineItem({ userId: getCtxUser(ctx).id, ...input })),
     updatePipelineItem: protectedProcedure
       .input(z.object({ id: z.number(), stage: z.enum(["testing", "scaling", "paused", "dropped"]).optional(), notes: z.string().optional() }))
-      .mutation(({ ctx, input }) => updatePipelineItem(input.id, ctx.user.id, { stage: input.stage, notes: input.notes })),
+      .mutation(({ ctx, input }) => updatePipelineItem(input.id, getCtxUser(ctx).id, { stage: input.stage, notes: input.notes })),
     deletePipelineItem: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(({ ctx, input }) => deletePipelineItem(input.id, ctx.user.id)),
+      .mutation(({ ctx, input }) => deletePipelineItem(input.id, getCtxUser(ctx).id)),
   }),
 
   // AI Agent Chat
   agent: router({
-    getChatSessions: protectedProcedure.query(({ ctx }) => getChatSessions(ctx.user.id)),
+    getChatSessions: protectedProcedure.query(({ ctx }) => getChatSessions(getCtxUser(ctx).id)),
     createChatSession: protectedProcedure
       .input(z.object({ title: z.string().optional() }))
-      .mutation(({ ctx, input }) => createChatSession(ctx.user.id, input.title)),
+      .mutation(({ ctx, input }) => createChatSession(getCtxUser(ctx).id, input.title)),
     deleteChatSession: protectedProcedure
       .input(z.object({ sessionId: z.number() }))
-      .mutation(({ ctx, input }) => deleteChatSession(input.sessionId, ctx.user.id)),
+      .mutation(({ ctx, input }) => deleteChatSession(input.sessionId, getCtxUser(ctx).id)),
     getChatMessages: protectedProcedure
       .input(z.object({ sessionId: z.number() }))
-      .query(({ ctx, input }) => getChatMessages(input.sessionId, ctx.user.id)),
-    sendMessage: protectedProcedure
+      .query(({ ctx, input }) => getChatMessages(input.sessionId, getCtxUser(ctx).id)),
+    sendMessage: aiProcedure("agent")
       .input(z.object({ sessionId: z.number(), content: z.string() }))
       .mutation(async ({ ctx, input }) => {
-        // Add user message
+        const userId = getCtxUser(ctx).id;
+        const owned = await chatSessionBelongsToUser(input.sessionId, userId);
+        if (!owned) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Chat session not found" });
+        }
+
         await addChatMessage({
           sessionId: input.sessionId,
-          userId: ctx.user.id,
+          userId,
           role: "user",
           content: input.content,
         });
 
-        // Get conversation history
-        const messages = await getChatMessages(input.sessionId, ctx.user.id);
+        const messages = await getChatMessages(input.sessionId, userId);
         const conversationHistory = messages.map((m) => ({
           role: m.role as "user" | "assistant" | "system",
           content: m.content,
@@ -711,11 +831,12 @@ Be concise but thorough. Ask clarifying questions when needed.`;
         // Add assistant message
         await addChatMessage({
           sessionId: input.sessionId,
-          userId: ctx.user.id,
+          userId,
           role: "assistant",
           content: assistantMessage,
         });
 
+        await recordUserEvent(userId, "ai_call", { feature: "agent" });
         return { message: assistantMessage };
       }),
   }),
@@ -730,15 +851,19 @@ Be concise but thorough. Ask clarifying questions when needed.`;
         })
       )
       .mutation(({ ctx, input }) =>
-        recordUserEvent(ctx.user.id, "discover_view", {
+        recordUserEvent(getCtxUser(ctx).id, "discover_view", {
           region: input.region,
           category: input.category,
         })
       ),
-    getDashboardMetrics: protectedProcedure.query(async ({ ctx }) => {
-      const watchlist = await getWatchlist(ctx.user.id);
-      const pipeline = await getPipelineItems(ctx.user.id);
-      const profits = await getProfitCalculations(ctx.user.id);
+    getDashboardMetrics: featureProcedure("analytics").query(async ({ ctx }) => {
+      const user = getCtxUser(ctx);
+      const subscription = await buildSubscriptionInfo(user);
+      const hasAdvanced = subscription.features.includes("analytics_advanced");
+
+      const watchlist = await getWatchlist(user.id);
+      const pipeline = await getPipelineItems(user.id);
+      const profits = await getProfitCalculations(user.id);
 
       const totalRevenue = profits.reduce((sum, p) => sum + (p.sellingPrice ?? 0), 0);
       const totalProfit = profits.reduce((sum, p) => sum + (p.netProfit ?? 0), 0);
@@ -747,39 +872,46 @@ Be concise but thorough. Ask clarifying questions when needed.`;
           ? profits.reduce((sum, p) => sum + (p.roi ?? 0), 0) / profits.length
           : 0;
 
-      const profitByProduct = profits.slice(0, 8).map((p) => ({
-        product: p.productTitle.length > 24 ? `${p.productTitle.slice(0, 24)}…` : p.productTitle,
-        profit: Math.round(p.netProfit ?? 0),
-        revenue: Math.round(p.sellingPrice ?? 0),
-      }));
+      const profitByProduct = hasAdvanced
+        ? profits.slice(0, 8).map((p) => ({
+            product: p.productTitle.length > 24 ? `${p.productTitle.slice(0, 24)}…` : p.productTitle,
+            profit: Math.round(p.netProfit ?? 0),
+            revenue: Math.round(p.sellingPrice ?? 0),
+          }))
+        : [];
 
       const now = new Date();
-      const trendData = Array.from({ length: 6 }, (_, i) => {
-        const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
-        const monthStart = new Date(d.getFullYear(), d.getMonth(), 1);
-        const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
-        const label = d.toLocaleString("en-US", { month: "short" });
-        const monthPipeline = pipeline.filter((p) => {
-          const created = p.createdAt ? new Date(p.createdAt) : null;
-          return created && created >= monthStart && created <= monthEnd;
-        });
-        const monthProfits = profits.filter((p) => {
-          const created = p.createdAt ? new Date(p.createdAt) : null;
-          return created && created >= monthStart && created <= monthEnd;
-        });
-        return {
-          month: label,
-          products: monthPipeline.length,
-          revenue: Math.round(monthProfits.reduce((s, p) => s + (p.sellingPrice ?? 0), 0)),
-        };
-      });
+      const trendData = hasAdvanced
+        ? Array.from({ length: 6 }, (_, i) => {
+            const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+            const monthStart = new Date(d.getFullYear(), d.getMonth(), 1);
+            const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
+            const label = d.toLocaleString("en-US", { month: "short" });
+            const monthPipeline = pipeline.filter((p) => {
+              const created = p.createdAt ? new Date(p.createdAt) : null;
+              return created && created >= monthStart && created <= monthEnd;
+            });
+            const monthProfits = profits.filter((p) => {
+              const created = p.createdAt ? new Date(p.createdAt) : null;
+              return created && created >= monthStart && created <= monthEnd;
+            });
+            return {
+              month: label,
+              products: monthPipeline.length,
+              revenue: Math.round(monthProfits.reduce((s, p) => s + (p.sellingPrice ?? 0), 0)),
+            };
+          })
+        : [];
 
-      const discoverViews = await countUserEvents(ctx.user.id, "discover_view");
-      const searchToPipeline = pipeline.filter((p) => p.sourceUrl).length;
-      const validateToPipeline = pipeline.filter((p) => p.validationScore != null).length;
-      const withLandedCost = pipeline.filter((p) => p.landedCost != null).length;
+      const discoverViews = hasAdvanced ? await countUserEvents(user.id, "discover_view") : 0;
+      const searchToPipeline = hasAdvanced ? pipeline.filter((p) => p.sourceUrl).length : 0;
+      const validateToPipeline = hasAdvanced
+        ? pipeline.filter((p) => p.validationScore != null).length
+        : 0;
+      const withLandedCost = hasAdvanced ? pipeline.filter((p) => p.landedCost != null).length : 0;
 
       return {
+        hasAdvancedAnalytics: hasAdvanced,
         totalWatchlistItems: watchlist.length,
         discoverViews,
         searchToPipeline,

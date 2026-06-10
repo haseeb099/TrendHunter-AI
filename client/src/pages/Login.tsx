@@ -16,22 +16,13 @@ import { trpc } from "@/lib/trpc";
 import { getRegisterUrl } from "@/const";
 
 import { toast } from "sonner";
-
-
+import { safeRedirectPath } from "@/lib/safeRedirect";
 
 function useRedirectPath() {
-
   if (typeof window === "undefined") return "/dashboard";
-
   const params = new URLSearchParams(window.location.search);
-
-  const redirect = params.get("redirect");
-
-  return redirect?.startsWith("/") ? redirect : "/dashboard";
-
+  return safeRedirectPath(params.get("redirect"), "/dashboard");
 }
-
-
 
 export default function Login() {
 

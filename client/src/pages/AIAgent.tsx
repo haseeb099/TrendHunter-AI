@@ -1,13 +1,27 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { PageHeader } from "@/components/PageHeader";
-import { MessageSquare, Send, Plus, Trash2 } from "lucide-react";
+import { AiFeatureGate } from "@/components/workspace/AiFeatureGate";
+import { MessageSquare, Send, Plus, Trash2, Bot } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+
+const SUGGESTED_PROMPTS = [
+  "What product categories are trending on TikTok Shop this month?",
+  "How do I calculate landed cost for a $8 product shipping from China to the US?",
+  "Compare dropshipping vs holding inventory for a new store",
+  "What margins should I target for impulse-buy products under $30?",
+];
 
 export default function AIAgent() {
   const utils = trpc.useUtils();
@@ -39,7 +53,7 @@ export default function AIAgent() {
     { sessionId: sessionId! },
     { enabled: !!sessionId }
   );
-  const aiDisabled = aiConfig.data && !aiConfig.data.ai.configured;
+  const aiDisabled = Boolean(aiConfig.data && !aiConfig.data.ai.configured);
 
   useEffect(() => {
     if (getMessagesQuery.data) {
@@ -52,7 +66,11 @@ export default function AIAgent() {
   }, [messages]);
 
   const handleNewChat = async () => {
-    await createSessionMutation.mutateAsync({});
+    try {
+      await createSessionMutation.mutateAsync({});
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to start chat");
+    }
   };
 
   const handleSelectSession = (id: number) => {
@@ -60,21 +78,25 @@ export default function AIAgent() {
   };
 
   const handleDeleteSession = async (id: number) => {
-    await deleteSessionMutation.mutateAsync({ sessionId: id });
+    try {
+      await deleteSessionMutation.mutateAsync({ sessionId: id });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete chat");
+    }
   };
 
-  const handleSendMessage = async (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent, override?: string) => {
     e.preventDefault();
-    if (!message.trim() || !sessionId || aiDisabled) return;
+    const content = (override ?? message).trim();
+    if (!content || !sessionId || aiDisabled) return;
 
-    const userMessage = message;
     setMessage("");
-    setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
+    setMessages((prev) => [...prev, { role: "user", content }]);
 
     try {
       const response = await sendMessageMutation.mutateAsync({
         sessionId,
-        content: userMessage,
+        content,
       });
       if (response) {
         setMessages((prev) => [...prev, { role: "assistant", content: response.message }]);
@@ -85,146 +107,233 @@ export default function AIAgent() {
     }
   };
 
+  const SessionMobilePicker = () => {
+    if (!sessionsQuery.data?.length) return null;
+    return (
+      <div className="lg:hidden flex gap-2 items-center">
+        <Select
+          value={sessionId ? String(sessionId) : undefined}
+          onValueChange={(v) => handleSelectSession(Number(v))}
+        >
+          <SelectTrigger className="flex-1 h-9 input-elegant">
+            <SelectValue placeholder="Past conversations" />
+          </SelectTrigger>
+          <SelectContent>
+            {sessionsQuery.data.map((s) => (
+              <SelectItem key={s.id} value={String(s.id)}>
+                {s.title}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {sessionId ? (
+          <Button
+            size="icon"
+            variant="outline"
+            className="shrink-0"
+            aria-label="Delete current chat"
+            onClick={() => handleDeleteSession(sessionId)}
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        ) : null}
+      </div>
+    );
+  };
+
+  const SessionSidebar = ({ className }: { className?: string }) => (
+    <aside className={cn("card-elevated flex flex-col overflow-hidden", className)}>
+      <div className="border-b border-border p-3">
+        <Button
+          onClick={handleNewChat}
+          disabled={createSessionMutation.isPending || aiDisabled}
+          className="w-full"
+          size="sm"
+        >
+          {createSessionMutation.isPending ? <Spinner className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+          New chat
+        </Button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
+        {sessionsQuery.data?.map((s) => (
+          <div key={s.id} className="flex items-center gap-0.5">
+            <button
+              type="button"
+              onClick={() => handleSelectSession(s.id)}
+              className={cn(
+                "flex-1 text-left text-sm px-3 py-2 rounded-lg truncate transition-colors",
+                sessionId === s.id
+                  ? "bg-primary/10 text-primary font-medium"
+                  : "hover:bg-muted/60 text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {s.title}
+            </button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8 shrink-0"
+              aria-label={`Delete chat: ${s.title}`}
+              onClick={() => handleDeleteSession(s.id)}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        ))}
+        {!sessionsQuery.data?.length ? (
+          <p className="text-xs text-muted-foreground px-3 py-4 text-center">No conversations yet</p>
+        ) : null}
+      </div>
+    </aside>
+  );
+
   if (!sessionId) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-8">
         <PageHeader
           title="AI Research Agent"
-          description="Chat with your personal product research advisor"
+          description="Your product research advisor — sourcing, margins, trends, and go-to-market strategy."
         />
 
-        {aiDisabled ? (
-          <Alert>
-            <AlertDescription>Add OPENAI_API_KEY to use the AI agent.</AlertDescription>
-          </Alert>
-        ) : null}
+        <AiFeatureGate disabled={aiDisabled} feature="AI research chat" />
 
-        <div className="grid md:grid-cols-[240px_1fr] gap-6">
-          <Card className="card-elevated p-4 space-y-2">
-            <Button onClick={handleNewChat} disabled={createSessionMutation.isPending || aiDisabled} className="w-full">
-              {createSessionMutation.isPending ? <Spinner className="w-4 h-4 mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
-              New chat
+        <SessionMobilePicker />
+        <div className="grid lg:grid-cols-[220px_1fr] gap-4 min-h-[420px]">
+          <SessionSidebar className="hidden lg:flex" />
+          <div className="product-panel-empty flex-1">
+            <div className="product-panel-empty-icon">
+              <MessageSquare className="w-5 h-5 text-primary" />
+            </div>
+            <p className="font-medium text-sm">Start a conversation</p>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto mb-6">
+              Ask about niches, supplier strategy, ad angles, or how to interpret validation scores.
+            </p>
+            <Button onClick={handleNewChat} disabled={createSessionMutation.isPending || aiDisabled}>
+              {createSessionMutation.isPending ? <Spinner className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+              Start chat
             </Button>
-            <div className="space-y-1 max-h-64 overflow-y-auto">
-              {sessionsQuery.data?.map((s) => (
+            <div className="mt-8 flex flex-wrap justify-center gap-2 max-w-lg mx-auto">
+              {SUGGESTED_PROMPTS.map((prompt) => (
                 <button
-                  key={s.id}
+                  key={prompt}
                   type="button"
-                  onClick={() => handleSelectSession(s.id)}
-                  className="w-full text-left text-sm px-3 py-2 rounded-md hover:bg-muted truncate"
+                  disabled={createSessionMutation.isPending || aiDisabled}
+                  onClick={async () => {
+                    try {
+                      const session = await createSessionMutation.mutateAsync({});
+                      if (session) {
+                        setSessionId(session.id);
+                        setMessages([]);
+                        await utils.agent.getChatSessions.invalidate();
+                      }
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : "Failed to start chat");
+                    }
+                  }}
+                  className="text-xs rounded-full border border-border px-3 py-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors text-left"
                 >
-                  {s.title}
+                  {prompt}
                 </button>
               ))}
             </div>
-          </Card>
-
-          <Card className="card-elevated p-12 text-center">
-            <MessageSquare className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-            <p className="text-lg font-semibold mb-4">Start a New Conversation</p>
-            <p className="text-muted-foreground mb-6">
-              Get AI-powered insights on product research, sourcing, and marketing strategies
-            </p>
-            <Button onClick={handleNewChat} disabled={createSessionMutation.isPending || aiDisabled}>
-              {createSessionMutation.isPending ? <Spinner className="w-4 h-4 mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
-              Start Chat
-            </Button>
-          </Card>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 h-[calc(100vh-200px)] flex flex-col">
-      <div className="flex items-center justify-between gap-4">
+    <div className="flex flex-col gap-4 min-h-[calc(100svh-12rem)]">
+      <div className="flex items-start justify-between gap-4">
         <PageHeader
           title="AI Research Agent"
-          description="Your personal product research advisor"
-          className="flex-1"
+          description="Ask follow-ups, compare options, and refine your product strategy."
+          className="flex-1 min-w-0"
         />
-        <Button variant="outline" size="sm" onClick={handleNewChat} disabled={aiDisabled}>
-          <Plus className="w-4 h-4 mr-2" />
+        <Button variant="outline" size="sm" onClick={handleNewChat} disabled={aiDisabled} className="shrink-0">
+          <Plus className="w-4 h-4" />
           New chat
         </Button>
       </div>
 
-      <div className="grid md:grid-cols-[240px_1fr] gap-4 flex-1 min-h-0">
-        <Card className="card-elevated p-3 overflow-y-auto hidden md:block">
-          <div className="space-y-1">
-            {sessionsQuery.data?.map((s) => (
-              <div key={s.id} className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => handleSelectSession(s.id)}
-                  className={`flex-1 text-left text-sm px-3 py-2 rounded-md truncate ${
-                    sessionId === s.id ? "bg-primary/10 text-primary" : "hover:bg-muted"
-                  }`}
-                >
-                  {s.title}
-                </button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="h-8 w-8 shrink-0"
-                  onClick={() => handleDeleteSession(s.id)}
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </Button>
-              </div>
-            ))}
-          </div>
-        </Card>
+      <AiFeatureGate disabled={aiDisabled} feature="AI research chat" />
 
-        <Card className="card-elevated flex-1 p-6 flex flex-col overflow-hidden">
-          <div className="flex-1 overflow-y-auto space-y-4 mb-4">
-            {messages.length === 0 && (
-              <div className="flex items-center justify-center h-full text-center">
-                <div>
-                  <MessageSquare className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                  <p className="text-muted-foreground">Start by asking about products, markets, or strategies</p>
+      <SessionMobilePicker />
+
+      <div className="grid lg:grid-cols-[220px_1fr] gap-4 flex-1 min-h-0">
+        <SessionSidebar className="hidden lg:flex max-h-[calc(100svh-14rem)]" />
+
+        <div className="card-elevated flex flex-col overflow-hidden min-h-[480px]">
+          <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4">
+            {messages.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-center py-12">
+                <Bot className="w-10 h-10 text-muted-foreground/50 mb-4" />
+                <p className="text-sm text-muted-foreground mb-6 max-w-sm">
+                  Try one of these prompts or ask your own question
+                </p>
+                <div className="flex flex-wrap justify-center gap-2 max-w-md">
+                  {SUGGESTED_PROMPTS.map((prompt) => (
+                    <button
+                      key={prompt}
+                      type="button"
+                      onClick={(e) => handleSendMessage(e, prompt)}
+                      disabled={sendMessageMutation.isPending || aiDisabled}
+                      className="text-xs rounded-full border border-border px-3 py-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors text-left"
+                    >
+                      {prompt}
+                    </button>
+                  ))}
                 </div>
               </div>
-            )}
-
-            {messages.map((msg, idx) => (
-              <div key={idx} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+            ) : (
+              messages.map((msg, idx) => (
                 <div
-                  className={`max-w-xs lg:max-w-md px-4 py-3 rounded-lg ${
-                    msg.role === "user"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground"
-                  }`}
+                  key={idx}
+                  className={cn("flex", msg.role === "user" ? "justify-end" : "justify-start")}
                 >
-                  <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                  <div
+                    className={cn(
+                      "max-w-[85%] sm:max-w-md",
+                      msg.role === "user" ? "chat-bubble-user" : "chat-bubble-assistant"
+                    )}
+                  >
+                    <p className="whitespace-pre-wrap">{msg.content}</p>
+                  </div>
                 </div>
-              </div>
-            ))}
-
-            {sendMessageMutation.isPending && (
-              <div className="flex justify-start">
-                <div className="bg-muted px-4 py-3 rounded-lg">
-                  <Spinner className="w-4 h-4" />
-                </div>
-              </div>
+              ))
             )}
+
+            {sendMessageMutation.isPending ? (
+              <div className="flex justify-start">
+                <div className="chat-bubble-assistant flex items-center gap-2">
+                  <Spinner className="w-4 h-4" />
+                  <span className="text-muted-foreground text-xs">Thinking…</span>
+                </div>
+              </div>
+            ) : null}
 
             <div ref={messagesEndRef} />
           </div>
 
-          <form onSubmit={handleSendMessage} className="flex gap-2">
+          <form
+            onSubmit={handleSendMessage}
+            className="border-t border-border p-4 flex gap-2 bg-muted/10"
+          >
             <Input
-              placeholder="Ask me anything about products, markets, or strategies..."
+              placeholder="Ask about products, markets, suppliers, or ads…"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               disabled={sendMessageMutation.isPending || aiDisabled}
               className="input-elegant flex-1"
             />
-            <Button type="submit" disabled={sendMessageMutation.isPending || !message.trim() || aiDisabled}>
+            <Button
+              type="submit"
+              disabled={sendMessageMutation.isPending || !message.trim() || aiDisabled}
+            >
               <Send className="w-4 h-4" />
             </Button>
           </form>
-        </Card>
+        </div>
       </div>
     </div>
   );

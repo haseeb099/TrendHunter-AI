@@ -1,11 +1,14 @@
 import type { LucideIcon } from "lucide-react";
+import type { FeatureId } from "@shared/plans";
 import {
   BarChart3,
   BookmarkIcon,
+  CreditCard,
   DollarSign,
   Layers,
   MessageSquare,
   Search,
+  Settings,
   Sparkles,
   TrendingUp,
   Users,
@@ -23,12 +26,16 @@ export type DashboardTabId =
   | "analytics"
   | "agent"
   | "pipeline"
-  | "watchlist";
+  | "watchlist"
+  | "billing"
+  | "account";
 
 export type DashboardNavItem = {
   id: DashboardTabId;
   label: string;
+  description: string;
   icon: LucideIcon;
+  requiredFeature?: FeatureId;
 };
 
 export type DashboardNavGroup = {
@@ -40,27 +47,105 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
   {
     label: "Research",
     items: [
-      { id: "search", label: "Search", icon: Search },
-      { id: "validate", label: "Validate", icon: Zap },
-      { id: "competitors", label: "Competitors", icon: Users },
-      { id: "marketgap", label: "Market Gap", icon: BarChart3 },
+      {
+        id: "search",
+        label: "Discover",
+        description: "Trending products, search, and filters",
+        icon: Search,
+      },
+      {
+        id: "validate",
+        label: "Validate",
+        description: "AI viability and trend scoring",
+        icon: Zap,
+        requiredFeature: "validate",
+      },
+      {
+        id: "competitors",
+        label: "Competitors",
+        description: "Pricing and positioning intelligence",
+        icon: Users,
+        requiredFeature: "competitors",
+      },
+      {
+        id: "marketgap",
+        label: "Market Gap",
+        description: "Underserved niches and opportunities",
+        icon: BarChart3,
+        requiredFeature: "marketgap",
+      },
     ],
   },
   {
     label: "Tools",
     items: [
-      { id: "profit", label: "Profit Calc", icon: DollarSign },
-      { id: "suppliers", label: "Suppliers", icon: TrendingUp },
-      { id: "social", label: "Social Kit", icon: Sparkles },
-      { id: "agent", label: "AI Agent", icon: MessageSquare },
+      {
+        id: "profit",
+        label: "Profit Calc",
+        description: "Margin, ROI, and landed cost",
+        icon: DollarSign,
+      },
+      {
+        id: "suppliers",
+        label: "Suppliers",
+        description: "Vet contacts and warehouse offers",
+        icon: TrendingUp,
+      },
+      {
+        id: "social",
+        label: "Social Kit",
+        description: "Hashtags, ad copy, and captions",
+        icon: Sparkles,
+        requiredFeature: "social",
+      },
+      {
+        id: "agent",
+        label: "AI Agent",
+        description: "Research advisor chat",
+        icon: MessageSquare,
+        requiredFeature: "agent",
+      },
     ],
   },
   {
     label: "Workspace",
     items: [
-      { id: "pipeline", label: "Pipeline", icon: Layers },
-      { id: "watchlist", label: "Watchlist", icon: BookmarkIcon },
-      { id: "analytics", label: "Analytics", icon: BarChart3 },
+      {
+        id: "pipeline",
+        label: "Pipeline",
+        description: "Testing through launch stages",
+        icon: Layers,
+      },
+      {
+        id: "watchlist",
+        label: "Watchlist",
+        description: "Saved products to track",
+        icon: BookmarkIcon,
+      },
+      {
+        id: "analytics",
+        label: "Analytics",
+        description: "Performance and funnel metrics",
+        icon: BarChart3,
+        requiredFeature: "analytics",
+      },
+    ],
+  },
+  {
+    label: "Account & Billing",
+    items: [
+      {
+        id: "billing",
+        label: "Billing",
+        description: "Plans, usage, coupons, and subscription",
+        icon: CreditCard,
+      },
+      {
+        id: "account",
+        label: "Account",
+        description: "Profile, password, and security",
+        icon: Settings,
+      },
     ],
   },
 ];

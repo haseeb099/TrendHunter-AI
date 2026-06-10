@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { appRouter } from "./routers";
-import { createTestContext } from "./testHelpers";
+import { createTestContext, createTestUser } from "./testHelpers";
 import * as db from "./db";
 
 vi.mock("./db", async () => {
@@ -46,7 +46,32 @@ describe("analytics router", () => {
     expect(metrics.pipelineByStage.scaling).toBe(1);
     expect(metrics.totalRevenue).toBe(150);
     expect(metrics.totalProfit).toBe(60);
-    expect(metrics.profitByProduct).toHaveLength(2);
-    expect(metrics.discoverViews).toBe(3);
+    expect(metrics.hasAdvancedAnalytics).toBe(false);
+    expect(metrics.discoverViews).toBe(0);
+    expect(metrics.trendData).toEqual([]);
+    expect(metrics.profitByProduct).toEqual([]);
+  });
+
+  it("includes advanced analytics for business plans", async () => {
+    vi.mocked(db.getWatchlist).mockResolvedValue([]);
+    vi.mocked(db.getPipelineItems).mockResolvedValue([{ stage: "testing", sourceUrl: "x" } as any]);
+    vi.mocked(db.countUserEvents).mockResolvedValue(5);
+    vi.mocked(db.getProfitCalculations).mockResolvedValue([
+      {
+        productTitle: "Earbuds",
+        sellingPrice: 100,
+        netProfit: 40,
+        roi: 50,
+        createdAt: new Date(),
+      } as any,
+    ]);
+
+    const caller = appRouter.createCaller(createTestContext(createTestUser({ planId: "business" })));
+    const metrics = await caller.analytics.getDashboardMetrics();
+
+    expect(metrics.hasAdvancedAnalytics).toBe(true);
+    expect(metrics.discoverViews).toBe(5);
+    expect(metrics.trendData.length).toBe(6);
+    expect(metrics.profitByProduct.length).toBeGreaterThan(0);
   });
 });

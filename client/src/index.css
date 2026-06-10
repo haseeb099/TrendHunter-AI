@@ -336,6 +336,273 @@
     @apply mx-auto w-12 h-12 rounded-full flex items-center justify-center;
     background: color-mix(in srgb, var(--primary) 12%, var(--card));
   }
+
+  .pipeline-column-testing {
+    @apply border-info/20 bg-info/5;
+  }
+
+  .pipeline-column-scaling {
+    @apply border-success/20 bg-success/5;
+  }
+
+  .pipeline-column-paused {
+    @apply border-warning/20 bg-warning/5;
+  }
+
+  .pipeline-column-dropped {
+    @apply border-destructive/20 bg-destructive/5;
+  }
+
+  .profit-result-positive {
+    @apply text-success;
+  }
+
+  .profit-result-negative {
+    @apply text-destructive;
+  }
+
+  .chat-bubble-user {
+    @apply bg-primary text-primary-foreground rounded-2xl rounded-br-md px-4 py-3 text-sm leading-relaxed;
+  }
+
+  .chat-bubble-assistant {
+    @apply bg-muted/80 text-foreground rounded-2xl rounded-bl-md px-4 py-3 text-sm leading-relaxed border border-border;
+  }
+
+  .cost-bar-segment {
+    @apply h-2 rounded-full transition-all duration-300;
+  }
+
+  /* Super Admin console */
+  .admin-canvas {
+    background-color: var(--background);
+    background-image:
+      radial-gradient(ellipse 70% 45% at 0% 0%, color-mix(in srgb, var(--primary) 7%, transparent), transparent 55%),
+      radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--border) 55%, transparent) 1px, transparent 0);
+    background-size: auto, 22px 22px;
+  }
+
+  .admin-eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.14em] text-primary;
+  }
+
+  .admin-icon-ring {
+    @apply flex h-11 w-11 items-center justify-center rounded-xl border border-primary/20;
+    background: color-mix(in srgb, var(--primary) 8%, var(--card));
+  }
+
+  .admin-tab-pill {
+    @apply inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium whitespace-nowrap transition-all duration-200;
+  }
+
+  .admin-tab-pill-active {
+    @apply bg-primary text-primary-foreground shadow-sm;
+  }
+
+  .admin-tab-pill-inactive {
+    @apply text-muted-foreground hover:bg-muted/50 hover:text-foreground;
+  }
+
+  .admin-header-stat {
+    @apply hidden lg:flex items-center gap-2 rounded-lg border border-border bg-card/80 px-3 py-1.5 text-xs;
+    box-shadow: var(--shadow-xs);
+  }
+
+  .admin-section {
+    @apply rounded-2xl border border-border bg-card overflow-hidden;
+    box-shadow: var(--shadow-md);
+  }
+
+  .admin-section-header {
+    @apply flex items-start justify-between gap-3 border-b border-border px-5 py-4 sm:px-6;
+    background: color-mix(in srgb, var(--muted) 35%, var(--card));
+  }
+
+  .admin-metric-card {
+    @apply rounded-xl border border-border bg-card p-4 transition-[border-color,box-shadow] duration-200;
+    box-shadow: var(--shadow-xs);
+  }
+
+  .admin-metric-card:hover {
+    border-color: color-mix(in srgb, var(--primary) 18%, var(--border));
+    box-shadow: var(--shadow-sm);
+  }
+
+  .admin-metric-label {
+    @apply text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground;
+  }
+
+  .admin-metric-value {
+    @apply font-display text-2xl font-semibold tracking-tight;
+  }
+
+  .admin-metric-icon {
+    @apply flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground;
+  }
+
+  .admin-toolbar {
+    @apply flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 sm:p-5;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .admin-table-shell {
+    @apply overflow-hidden rounded-xl border border-border;
+  }
+
+  .admin-table-shell tbody tr {
+    @apply transition-colors duration-150;
+  }
+
+  .admin-table-shell tbody tr:hover {
+    background: color-mix(in srgb, var(--muted) 45%, transparent);
+  }
+
+  .admin-bulk-bar {
+    @apply flex flex-wrap items-center gap-2 rounded-xl border border-primary/20 px-4 py-3;
+    background: color-mix(in srgb, var(--primary) 6%, var(--card));
+  }
+
+  .admin-empty-state {
+    @apply flex flex-col items-center justify-center gap-3 py-14 px-6 text-center;
+  }
+
+  .admin-empty-icon {
+    @apply flex h-12 w-12 items-center justify-center rounded-full border border-primary/20;
+    background: color-mix(in srgb, var(--primary) 10%, var(--card));
+  }
+
+  .admin-detail-tab {
+    @apply px-3 py-2 text-xs font-medium rounded-lg transition-colors;
+  }
+
+  .admin-detail-tab-active {
+    @apply bg-primary/10 text-primary;
+  }
+
+  .admin-detail-tab-inactive {
+    @apply text-muted-foreground hover:bg-muted/50 hover:text-foreground;
+  }
+
+  .admin-chart-bar {
+    @apply h-2.5 rounded-full bg-muted overflow-hidden;
+  }
+
+  .admin-chart-fill {
+    @apply h-full rounded-full bg-primary transition-all duration-500 ease-out;
+  }
+
+  .admin-plan-card {
+    @apply rounded-2xl border border-border bg-card overflow-hidden transition-[border-color,box-shadow] duration-200;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .admin-plan-card:hover {
+    border-color: color-mix(in srgb, var(--primary) 20%, var(--border));
+  }
+
+  .admin-plan-card-expanded {
+    border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
+    box-shadow: var(--shadow-md);
+  }
+
+  .admin-settings-group {
+    @apply rounded-2xl border border-border bg-card p-5 sm:p-6 space-y-5;
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* Right-side panels (admin + workspace) */
+  .side-panel-content {
+    box-shadow: -12px 0 40px rgb(26 24 22 / 0.08);
+  }
+
+  .dark .side-panel-content {
+    box-shadow: -12px 0 48px rgb(0 0 0 / 0.45);
+  }
+
+  .side-panel-close {
+    @apply absolute top-4 right-4 z-30 h-8 w-8 rounded-lg border border-border/60 bg-background/95 shadow-sm backdrop-blur-sm;
+  }
+
+  .side-panel-header {
+    @apply relative px-5 pt-5 pb-4 border-b border-border;
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--primary) 6%, var(--card)) 0%,
+      var(--card) 100%
+    );
+  }
+
+  .side-panel-header-icon {
+    @apply flex h-12 w-12 items-center justify-center rounded-xl border border-primary/20;
+    background: color-mix(in srgb, var(--primary) 10%, var(--card));
+  }
+
+  .side-panel-tabs {
+    @apply px-5 py-3 border-b border-border bg-muted/25;
+  }
+
+  .side-panel-tab {
+    @apply rounded-lg px-3 py-2 text-xs font-semibold transition-all duration-200;
+  }
+
+  .side-panel-tab-active {
+    @apply bg-primary text-primary-foreground shadow-sm;
+  }
+
+  .side-panel-tab-inactive {
+    @apply text-muted-foreground hover:bg-muted/60 hover:text-foreground;
+  }
+
+  .side-panel-body {
+    @apply bg-background;
+  }
+
+  .side-panel-footer {
+    @apply border-t border-border px-5 py-4 flex flex-wrap items-center gap-2;
+    background: color-mix(in srgb, var(--card) 94%, transparent);
+    backdrop-filter: blur(10px);
+  }
+
+  .side-panel-section {
+    @apply rounded-xl border border-border bg-card/50 p-4;
+    box-shadow: var(--shadow-xs);
+  }
+
+  .side-panel-metric {
+    @apply rounded-xl border border-border bg-muted/20 px-3.5 py-3;
+  }
+
+  .side-panel-metric-label {
+    @apply text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground;
+  }
+
+  .side-panel-metric-value {
+    @apply text-base font-semibold text-foreground mt-1;
+  }
+
+  .side-panel-empty {
+    @apply rounded-xl border border-dashed border-border bg-muted/15 px-4 py-10 text-center space-y-1;
+  }
+
+  .side-panel-timeline-item {
+    @apply relative pl-6;
+  }
+
+  .side-panel-timeline-dot {
+    @apply absolute left-0 top-1.5 h-2.5 w-2.5 rounded-full border-2 border-primary bg-background;
+  }
+
+  .side-panel-timeline-line {
+    @apply absolute left-[4px] top-4 bottom-0 w-px bg-border;
+  }
+
+  .product-drawer .side-panel-close {
+    @apply border-white/25 bg-black/35 text-white hover:bg-white/20 hover:text-white;
+  }
+
+  .admin-toggle-row {
+    @apply flex items-center justify-between gap-4 rounded-xl border border-border px-4 py-3.5 transition-colors hover:bg-muted/25;
+  }
 }
 
 @layer utilities {
@@ -352,6 +619,17 @@
   .fade-up {
     animation: fadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
+
+  .admin-stagger > * {
+    animation: fadeUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .admin-stagger > *:nth-child(1) { animation-delay: 0ms; }
+  .admin-stagger > *:nth-child(2) { animation-delay: 40ms; }
+  .admin-stagger > *:nth-child(3) { animation-delay: 80ms; }
+  .admin-stagger > *:nth-child(4) { animation-delay: 120ms; }
+  .admin-stagger > *:nth-child(5) { animation-delay: 160ms; }
+  .admin-stagger > *:nth-child(6) { animation-delay: 200ms; }
 
   @keyframes fadeUp {
     from {

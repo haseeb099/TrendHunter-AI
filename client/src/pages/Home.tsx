@@ -29,6 +29,7 @@ import {
   LineChart,
 } from "lucide-react";
 import { Link } from "wouter";
+import { PUBLIC_PLANS } from "@shared/plans";
 
 const features = [
   {
@@ -63,27 +64,16 @@ const features = [
   },
 ];
 
-const tiers = [
-  {
-    name: "Starter",
-    price: "$29",
-    desc: "For solo sellers validating first niches.",
-    features: ["Basic search", "100 searches / mo", "Margin calculator"],
-  },
-  {
-    name: "Pro",
-    price: "$79",
-    desc: "For operators scaling across channels.",
-    features: ["All platforms", "Competitor spy", "AI scoring", "500 searches / mo"],
-    highlight: true,
-  },
-  {
-    name: "Agency",
-    price: "$199",
-    desc: "For teams managing multiple brands.",
-    features: ["Multi-client", "White-label reports", "Unlimited searches"],
-  },
-];
+const tiers = PUBLIC_PLANS.map((plan) => ({
+  id: plan.id,
+  name: plan.name,
+  price: plan.priceLabel,
+  period: plan.billingPeriod,
+  desc: plan.tagline,
+  features: plan.features.slice(0, 4),
+  highlight: plan.highlight ?? false,
+  isTrial: plan.id === "trial",
+}));
 
 function DashboardPreview() {
   return (
@@ -420,15 +410,15 @@ export default function Home() {
             <h2 className="section-title mb-3">Simple plans, room to grow</h2>
             <p className="text-muted-foreground">Upgrade when your research volume demands it.</p>
           </div>
-          <div className="grid md:grid-cols-3 gap-4 max-w-5xl">
+          <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4 max-w-6xl">
             {tiers.map((tier) => (
               <article
-                key={tier.name}
+                key={tier.id}
                 className={`surface p-6 flex flex-col ${tier.highlight ? "ring-1 ring-primary/30 shadow-md" : ""}`}
               >
                 {tier.highlight ? (
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-primary mb-3">
-                    Recommended
+                    {tier.isTrial ? "Try free" : "Recommended"}
                   </span>
                 ) : (
                   <span className="h-5 mb-3 block" />
@@ -437,7 +427,9 @@ export default function Home() {
                 <p className="text-sm text-muted-foreground mt-1 mb-5">{tier.desc}</p>
                 <div className="mb-6">
                   <span className="stat-value text-3xl">{tier.price}</span>
-                  <span className="text-sm text-muted-foreground"> / mo</span>
+                  <span className="text-sm text-muted-foreground">
+                    {tier.isTrial ? ` · ${tier.period}` : ` / mo`}
+                  </span>
                 </div>
                 <ul className="space-y-2.5 flex-1 mb-8">
                   {tier.features.map((f) => (
@@ -447,9 +439,15 @@ export default function Home() {
                     </li>
                   ))}
                 </ul>
-                <Link href={isAuthenticated ? "/dashboard" : getRegisterUrl()}>
+                <Link
+                  href={
+                    isAuthenticated
+                      ? "/dashboard/billing"
+                      : getRegisterUrl()
+                  }
+                >
                   <Button variant={tier.highlight ? "default" : "outline"} className="w-full">
-                    Get started
+                    {tier.isTrial ? "Start 3-day trial" : "Get started"}
                   </Button>
                 </Link>
               </article>
@@ -462,7 +460,7 @@ export default function Home() {
         <div className="surface-elevated p-10 md:p-14 text-center max-w-3xl mx-auto">
           <h2 className="section-title mb-3">Start researching with confidence</h2>
           <p className="text-muted-foreground mb-8 max-w-lg mx-auto">
-            Create your account and explore the full workspace in minutes.
+            Create your account and start a 3-day Pro trial — no card required.
           </p>
           <Link href={isAuthenticated ? "/dashboard" : getRegisterUrl()}>
             <Button size="lg">

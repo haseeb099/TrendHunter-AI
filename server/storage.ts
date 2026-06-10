@@ -11,9 +11,25 @@ import { ENV } from "./_core/env";
 
 
 function normalizeKey(relKey: string): string {
+  const segments = relKey
+    .replace(/^\/+/, "")
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter((segment) => segment && segment !== "." && segment !== "..");
+  if (segments.length === 0) {
+    throw new Error("Invalid storage key");
+  }
+  return segments.join("/");
+}
 
-  return relKey.replace(/^\/+/, "");
-
+function resolveLocalPath(key: string): string {
+  const uploadsRoot = path.resolve(process.cwd(), ENV.uploadsDir);
+  const filePath = path.resolve(uploadsRoot, key);
+  const relative = path.relative(uploadsRoot, filePath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error("Path traversal detected");
+  }
+  return filePath;
 }
 
 
@@ -97,15 +113,9 @@ function publicUrlForKey(key: string): string {
 
 
 async function putLocal(key: string, data: Buffer, _contentType: string) {
-
-  const uploadsRoot = path.resolve(process.cwd(), ENV.uploadsDir);
-
-  const filePath = path.join(uploadsRoot, key);
-
+  const filePath = resolveLocalPath(key);
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-
   await fs.writeFile(filePath, data);
-
 }
 
 

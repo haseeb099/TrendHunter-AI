@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -12,13 +10,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PageHeader } from "@/components/PageHeader";
+import { AiFeatureGate } from "@/components/workspace/AiFeatureGate";
+import { FormSection } from "@/components/workspace/FormSection";
+import { FieldLabel } from "@/components/workspace/FieldLabel";
 import { ProductValidationPanel } from "@/components/product-workspace/ProductValidationPanel";
-import { Zap } from "lucide-react";
+import { Zap, Compass } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
+import { getDashboardPath } from "@/config/dashboardNav";
 
 export default function ProductValidation() {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const [productTitle, setProductTitle] = useState("");
   const [platform, setPlatform] = useState("amazon");
   const [price, setPrice] = useState(0);
@@ -34,7 +36,7 @@ export default function ProductValidation() {
     },
     onError: (err) => toast.error(err.message),
   });
-  const aiDisabled = aiConfig.data && !aiConfig.data.ai.configured;
+  const aiDisabled = Boolean(aiConfig.data && !aiConfig.data.ai.configured);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -47,73 +49,78 @@ export default function ProductValidation() {
   }, [location]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <PageHeader
         title="AI Product Validation"
-        description="Score products on viability and market potential — or validate inline from Discover"
+        description="Score trend momentum, saturation, margin potential, and supplier reliability — or validate inline from Discover."
+        actions={
+          <Button variant="outline" size="sm" onClick={() => setLocation(getDashboardPath("search"))}>
+            <Compass className="w-4 h-4" />
+            Open Discover
+          </Button>
+        }
       />
 
-      {aiDisabled ? (
-        <Alert>
-          <AlertDescription>Add OPENAI_API_KEY to run AI product validation.</AlertDescription>
-        </Alert>
-      ) : null}
+      <AiFeatureGate disabled={aiDisabled} feature="Product validation" />
 
-      <Card className="card-elevated p-6">
-        <div className="space-y-4">
-          <div>
-            <label className="text-sm font-semibold mb-2 block">Product Title</label>
+      <FormSection
+        title="Product to validate"
+        description="Fields auto-fill when you arrive from a product card or watchlist."
+        icon={Zap}
+        footer={
+          <Button
+            onClick={() => setShowResults(true)}
+            disabled={!productTitle.trim() || aiDisabled}
+            className="w-full sm:w-auto"
+          >
+            <Zap className="w-4 h-4" />
+            Run validation
+          </Button>
+        }
+      >
+        <FieldLabel htmlFor="val-title">Product title</FieldLabel>
+        <Input
+          id="val-title"
+          placeholder="e.g. Magnetic phone mount"
+          value={productTitle}
+          onChange={(e) => {
+            setProductTitle(e.target.value);
+            setShowResults(false);
+          }}
+          className="input-elegant"
+        />
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <FieldLabel>Target marketplace</FieldLabel>
+            <Select value={platform} onValueChange={setPlatform}>
+              <SelectTrigger className="w-full input-elegant">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="amazon">Amazon</SelectItem>
+                <SelectItem value="ebay">eBay</SelectItem>
+                <SelectItem value="shopify">Shopify / Retail</SelectItem>
+                <SelectItem value="tiktok">TikTok Shop</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <FieldLabel htmlFor="val-price">Selling price ($)</FieldLabel>
             <Input
-              placeholder="Enter product name..."
-              value={productTitle}
-              onChange={(e) => setProductTitle(e.target.value)}
+              id="val-price"
+              type="number"
+              min={0}
+              step="0.01"
+              value={price}
+              onChange={(e) => setPrice(Number(e.target.value))}
               className="input-elegant"
             />
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="text-sm font-semibold mb-2 block">Platform</label>
-              <Select value={platform} onValueChange={setPlatform}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="amazon">Amazon</SelectItem>
-                  <SelectItem value="ebay">eBay</SelectItem>
-                  <SelectItem value="shopify">Shopify / Retail</SelectItem>
-                  <SelectItem value="tiktok">TikTok Shop</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <label className="text-sm font-semibold mb-2 block">Price ($)</label>
-              <Input
-                type="number"
-                placeholder="0.00"
-                value={price}
-                onChange={(e) => setPrice(Number(e.target.value))}
-                className="input-elegant"
-              />
-            </div>
-
-            <div className="flex items-end">
-              <Button
-                onClick={() => setShowResults(true)}
-                disabled={!productTitle.trim() || aiDisabled}
-                className="w-full"
-              >
-                <Zap className="w-4 h-4 mr-2" />
-                Load validation
-              </Button>
-            </div>
-          </div>
         </div>
-      </Card>
+      </FormSection>
 
       {showResults && productTitle.trim() ? (
-        <Card className="card-elevated p-6">
+        <section className="card-elevated p-5 sm:p-6">
           <ProductValidationPanel
             key={`${productTitle}-${platform}-${price}`}
             productTitle={productTitle}
@@ -127,24 +134,22 @@ export default function ProductValidation() {
                 platform,
                 price,
                 validationScore: validation.overallScore,
-                estimatedProfit:
-                  price > 0 && validation.profitPotential
-                    ? (price * validation.profitPotential) / 100
-                    : undefined,
                 stage: validation.overallScore >= 75 ? "scaling" : "testing",
                 notes: `AI validation: trend ${validation.trendScore}, saturation ${validation.saturationScore}`,
               })
             }
           />
-        </Card>
+        </section>
       ) : (
-        <Card className="card-elevated p-12 text-center">
-          <Zap className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-          <p className="text-muted-foreground">
-            Enter product details above, or open any product from Discover and use the Validate tab in
-            the side panel.
+        <div className="product-panel-empty">
+          <div className="product-panel-empty-icon">
+            <Zap className="w-5 h-5 text-primary" />
+          </div>
+          <p className="font-medium text-sm">Ready to score a product</p>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">
+            Enter details above, or open any product in Discover and use the Validate tab in the side panel.
           </p>
-        </Card>
+        </div>
       )}
     </div>
   );

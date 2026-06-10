@@ -8,9 +8,9 @@
 
 ## Phase 2: Landing Page & Auth & Dashboard Shell
 - [x] Elegant landing page with hero, features grid, pricing tiers, CTA
-- [x] Auth flow (login/logout via Manus OAuth)
+- [x] Auth flow (email/password login + JWT session)
 - [x] Dashboard with sidebar: Search, Validate, Competitors, Profit Calc, Suppliers, Social Kit, Market Gap, Analytics, AI Agent, Pipeline
-- [x] User profile / settings page (via Manus OAuth)
+- [x] User profile / settings page
 
 ## Phase 3: Product Search & AI Validation
 - [x] Multi-platform product search UI (eBay, Amazon, Shopify, TikTok Shop tabs)

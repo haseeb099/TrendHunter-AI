@@ -36,6 +36,34 @@
       "when": 1780886000000,
       "tag": "0004_user_events",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1780887000000,
+      "tag": "0005_subscription_plans",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1780888000000,
+      "tag": "0006_admin_controls",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1780889000000,
+      "tag": "0007_plans_coupons_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1780890000000,
+      "tag": "0008_stripe_webhooks",
+      "breakpoints": true
     }
   ]
 }

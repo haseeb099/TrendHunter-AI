@@ -8,6 +8,16 @@ type UseAuthOptions = {
   redirectPath?: string;
 };
 
+function persistUserSnapshot(user: Record<string, unknown> | null | undefined) {
+  if (typeof window === "undefined") return;
+  if (!user) {
+    localStorage.removeItem("app-user-info");
+    return;
+  }
+  const { passwordHash: _removed, ...safe } = user;
+  localStorage.setItem("app-user-info", JSON.stringify(safe));
+}
+
 export function useAuth(options?: UseAuthOptions) {
   const { redirectOnUnauthenticated = false, redirectPath: redirectPathOption } =
     options ?? {};
@@ -48,21 +58,25 @@ export function useAuth(options?: UseAuthOptions) {
     }
   }, [logoutMutation, utils]);
 
-  const state = useMemo(() => {
-    localStorage.setItem("app-user-info", JSON.stringify(meQuery.data));
-    return {
+  useEffect(() => {
+    persistUserSnapshot(meQuery.data as Record<string, unknown> | null | undefined);
+  }, [meQuery.data]);
+
+  const state = useMemo(
+    () => ({
       user: meQuery.data ?? null,
       loading: meQuery.isLoading || logoutMutation.isPending,
       error: meQuery.error ?? logoutMutation.error ?? null,
       isAuthenticated: Boolean(meQuery.data),
-    };
-  }, [
-    meQuery.data,
-    meQuery.error,
-    meQuery.isLoading,
-    logoutMutation.error,
-    logoutMutation.isPending,
-  ]);
+    }),
+    [
+      meQuery.data,
+      meQuery.error,
+      meQuery.isLoading,
+      logoutMutation.error,
+      logoutMutation.isPending,
+    ]
+  );
 
   useEffect(() => {
     if (!redirectOnUnauthenticated) return;

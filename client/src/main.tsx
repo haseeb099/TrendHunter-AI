@@ -1,5 +1,12 @@
 import { trpc } from "@/lib/trpc";
-import { UNAUTHED_ERR_MSG } from '@shared/const';
+import {
+  ACCOUNT_DEACTIVATED_ERR_MSG,
+  ACCOUNT_FLAGGED_ERR_MSG,
+  ACCOUNT_PAUSED_ERR_MSG,
+  PLAN_FORBIDDEN_ERR_MSG,
+  PLAN_LIMIT_ERR_MSG,
+  UNAUTHED_ERR_MSG,
+} from "@shared/const";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
@@ -29,10 +36,26 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (typeof window === "undefined") return;
 
   const isUnauthorized = error.message === UNAUTHED_ERR_MSG;
+  if (isUnauthorized) {
+    window.location.href = getLoginUrl();
+    return;
+  }
 
-  if (!isUnauthorized) return;
+  const needsUpgrade =
+    error.message.startsWith(PLAN_FORBIDDEN_ERR_MSG) ||
+    error.message.startsWith(PLAN_LIMIT_ERR_MSG);
+  if (needsUpgrade && !window.location.pathname.includes("/dashboard/billing")) {
+    window.location.href = "/dashboard/billing";
+    return;
+  }
 
-  window.location.href = getLoginUrl();
+  const accountRestricted =
+    error.message === ACCOUNT_DEACTIVATED_ERR_MSG ||
+    error.message === ACCOUNT_PAUSED_ERR_MSG ||
+    error.message === ACCOUNT_FLAGGED_ERR_MSG;
+  if (accountRestricted && !window.location.pathname.includes("/dashboard/billing")) {
+    window.location.href = "/dashboard/billing";
+  }
 };
 
 queryClient.getQueryCache().subscribe(event => {

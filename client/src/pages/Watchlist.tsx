@@ -83,6 +83,18 @@ export default function Watchlist() {
     );
   }
 
+  if (watchlistQuery.isError) {
+    return (
+      <div className="card-elevated max-w-md mx-auto p-8 text-center space-y-4">
+        <p className="font-medium text-sm">Could not load watchlist</p>
+        <p className="text-sm text-muted-foreground">{watchlistQuery.error.message}</p>
+        <Button variant="outline" onClick={() => watchlistQuery.refetch()}>
+          Try again
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -154,7 +166,12 @@ export default function Watchlist() {
                   </Button>
                   {item.sourceUrl ? (
                     <Button size="sm" variant="ghost" asChild>
-                      <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer">
+                      <a
+                        href={item.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label="Open product source"
+                      >
                         <ExternalLink className="w-3.5 h-3.5" />
                       </a>
                     </Button>
@@ -164,6 +181,7 @@ export default function Watchlist() {
               <Button
                 variant="ghost"
                 size="icon-sm"
+                aria-label={`Remove ${item.productTitle} from watchlist`}
                 onClick={(e) => {
                   e.stopPropagation();
                   removeMutation.mutate({ id: item.id });
