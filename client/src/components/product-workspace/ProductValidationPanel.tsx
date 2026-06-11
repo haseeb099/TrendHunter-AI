@@ -16,6 +16,7 @@ import {
   Megaphone,
 } from "lucide-react";
 import { pickValidationScores, type ProductValidationResult } from "./types";
+import { DataFreshnessBadge } from "@/components/intelligence/DataFreshnessBadge";
 
 type ProductValidationPanelProps = {
   productTitle: string;
@@ -141,12 +142,14 @@ export function ProductValidationPanel({
                     <TrendingUp className="w-3 h-3 mr-1" />
                     {response.trendSignal.momentumLabel} · score{" "}
                     {Math.round(response.trendSignal.momentumScore)}
+                    {response.trendSignal.stale ? " · stale" : ""}
                   </Badge>
                 ) : null}
                 {response.adSnapshot ? (
                   <Badge variant="outline" className="text-[10px]">
                     <Megaphone className="w-3 h-3 mr-1" />
                     {response.adSnapshot.activeAdCount} active ads
+                    {response.adSnapshot.stale ? " · stale" : ""}
                   </Badge>
                 ) : null}
               </div>
@@ -155,10 +158,13 @@ export function ProductValidationPanel({
 
           <div className="product-score-hero">
             <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-primary/80 mb-1">
-                  Viability score
-                </p>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2 mb-1">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-primary/80">
+                    Viability score
+                  </p>
+                  <DataFreshnessBadge synthetic />
+                </div>
                 <p className="text-sm text-muted-foreground line-clamp-2">{validation.reasoning}</p>
               </div>
               <div className={`font-display text-4xl font-bold tabular-nums ${scoreTone(validation.overallScore)}`}>
@@ -191,23 +197,32 @@ export function ProductValidationPanel({
           </div>
 
           <div className={`grid gap-3 ${compact ? "grid-cols-2" : "grid-cols-2"}`}>
-            {[
-              { label: "Trend", value: validation.trendScore, icon: TrendingUp },
-              { label: "Saturation", value: validation.saturationScore, icon: AlertCircle },
-              { label: "Profit", value: validation.profitPotential, icon: CheckCircle },
-              { label: "Supplier", value: validation.supplierReliability, icon: CheckCircle },
-            ].map((metric) => (
+            {(
+              [
+                { key: "trendScore" as const, label: "Trend", icon: TrendingUp },
+                { key: "saturationScore" as const, label: "Saturation", icon: AlertCircle },
+                { key: "profitPotential" as const, label: "Profit", icon: CheckCircle },
+                { key: "supplierReliability" as const, label: "Supplier", icon: CheckCircle },
+              ] as const
+            ).map((metric) => (
               <div key={metric.label} className="product-metric-tile">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                     <metric.icon className="w-3.5 h-3.5" />
                     {metric.label}
                   </div>
-                  <span className={`text-lg font-bold tabular-nums ${scoreTone(metric.value)}`}>
-                    {metric.value}
+                  <span
+                    className={`text-lg font-bold tabular-nums ${scoreTone(validation[metric.key])}`}
+                  >
+                    {validation[metric.key]}
                   </span>
                 </div>
-                <Progress value={metric.value} className="h-1.5" />
+                <Progress value={validation[metric.key]} className="h-1.5" />
+                {validation.dimensionReasoning?.[metric.key] ? (
+                  <p className="text-[11px] text-muted-foreground mt-2 leading-snug">
+                    {validation.dimensionReasoning[metric.key]}
+                  </p>
+                ) : null}
               </div>
             ))}
           </div>

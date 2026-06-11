@@ -14,7 +14,7 @@ export async function searchAliExpressOffers(
   region?: RegionCode
 ): Promise<{ offers: ProductOffer[]; live: boolean; error?: string }> {
   if (!isAliExpressApiConfigured()) {
-    return { offers: getAliExpressMockOffers(title, region), live: false };
+    return { offers: [], live: false };
   }
 
   try {
@@ -42,7 +42,7 @@ export async function searchAliExpressOffers(
     if (!response.ok) {
       console.warn("[AliExpress] API error:", response.status);
       return {
-        offers: getAliExpressMockOffers(title, region),
+        offers: [],
         live: false,
         error: `AliExpress API error (${response.status})`,
       };
@@ -61,7 +61,7 @@ export async function searchAliExpressOffers(
       const msg = data.error_response.sub_msg ?? data.error_response.msg ?? "Unknown error";
       console.warn("[AliExpress] API returned error:", msg);
       return {
-        offers: getAliExpressMockOffers(title, region),
+        offers: [],
         live: false,
         error: msg,
       };
@@ -72,7 +72,7 @@ export async function searchAliExpressOffers(
         ?.product ?? [];
 
     if (products.length === 0) {
-      return { offers: getAliExpressMockOffers(title, region), live: false };
+      return { offers: [], live: false };
     }
 
     const mapping = resolveRegion(region);
@@ -102,50 +102,9 @@ export async function searchAliExpressOffers(
   } catch (err) {
     console.warn("[AliExpress] fetch failed:", err);
     return {
-      offers: getAliExpressMockOffers(title, region),
+      offers: [],
       live: false,
       error: "AliExpress request failed",
     };
   }
-}
-
-function getAliExpressMockOffers(title: string, region?: RegionCode): ProductOffer[] {
-  const mapping = resolveRegion(region);
-  const base = 6 + (title.length % 8);
-  return [
-    {
-      id: "ae-mock-1",
-      productTitle: `${title} — AliExpress CN`,
-      supplierPlatform: "aliexpress",
-      supplierSku: "AE-123456",
-      warehouse: "CN",
-      shipFrom: "CN",
-      unitCost: base,
-      shippingCost: 1.99,
-      moq: 1,
-      processingDays: 2,
-      shippingDaysMin: 15,
-      shippingDaysMax: 30,
-      currency: mapping.currency,
-      landedCost: base + 1.99,
-      isDemo: true,
-    },
-    {
-      id: "ae-mock-2",
-      productTitle: `${title} — AliExpress EU Warehouse`,
-      supplierPlatform: "aliexpress",
-      supplierSku: "AE-789012",
-      warehouse: "EU",
-      shipFrom: "EU",
-      unitCost: base + 4,
-      shippingCost: 3.5,
-      moq: 1,
-      processingDays: 1,
-      shippingDaysMin: 5,
-      shippingDaysMax: 10,
-      currency: mapping.currency,
-      landedCost: base + 7.5,
-      isDemo: true,
-    },
-  ];
 }

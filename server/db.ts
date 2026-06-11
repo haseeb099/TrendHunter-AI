@@ -29,6 +29,8 @@ import {
   intelKeywordWatches,
   intelDigestPrefs,
   InsertIntelKeywordWatch,
+  passwordResetTokens,
+  InsertPasswordResetToken,
 } from "../drizzle/schema";
 import type { AccountStatus, LimitOverrides } from "@shared/adminTypes";
 import type { ProductHuntFilters } from "@shared/searchTypes";
@@ -45,6 +47,29 @@ export async function getDb() {
     }
   }
   return _db;
+}
+
+export async function pingDatabase(): Promise<{
+  ok: boolean;
+  latencyMs?: number;
+  error?: string;
+}> {
+  const db = await getDb();
+  if (!db) {
+    return { ok: false, error: "not_configured" };
+  }
+
+  const start = Date.now();
+  try {
+    await db.execute(sql`SELECT 1`);
+    return { ok: true, latencyMs: Date.now() - start };
+  } catch (err) {
+    return {
+      ok: false,
+      latencyMs: Date.now() - start,
+      error: err instanceof Error ? err.message : "ping_failed",
+    };
+  }
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
@@ -232,6 +257,26 @@ export async function addChatMessage(msg: InsertChatMessage) {
     .update(chatSessions)
     .set({ updatedAt: new Date() })
     .where(and(eq(chatSessions.id, msg.sessionId), eq(chatSessions.userId, msg.userId)));
+}
+
+export async function getChatSession(sessionId: number, userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(chatSessions)
+    .where(and(eq(chatSessions.id, sessionId), eq(chatSessions.userId, userId)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function updateChatSessionTitle(sessionId: number, userId: number, title: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(chatSessions)
+    .set({ title: title.slice(0, 255), updatedAt: new Date() })
+    .where(and(eq(chatSessions.id, sessionId), eq(chatSessions.userId, userId)));
 }
 
 // Profit Calculations
@@ -432,7 +477,6 @@ function rowToProductOffer(row: typeof productOffers.$inferSelect): ProductOffer
     shippingDaysMax: row.shippingDaysMax ?? undefined,
     currency: row.currency ?? "USD",
     landedCost: row.unitCost + row.shippingCost,
-    isDemo: raw.isDemo,
   };
 }
 
@@ -440,9 +484,9 @@ export async function getCachedProductOffers(options: {
   productId?: string;
   title: string;
   maxAgeMs: number;
-}): Promise<ProductOffer[]> {
+}): Promise<{ offers: ProductOffer[]; fetchedAt: string | null; stale: boolean }> {
   const db = await getDb();
-  if (!db) return [];
+  if (!db) return { offers: [], fetchedAt: null, stale: false };
 
   const minFetchedAt = new Date(Date.now() - options.maxAgeMs);
   const titlePattern = `%${options.title.slice(0, 40)}%`;
@@ -474,13 +518,58 @@ export async function getCachedProductOffers(options: {
 
   const seen = new Set<string>();
   const offers: ProductOffer[] = [];
+  let latestFetchedAt: Date | null = null;
+
   for (const row of rows) {
     const key = `${row.supplierPlatform}-${row.supplierSku ?? row.id}`;
     if (seen.has(key)) continue;
     seen.add(key);
     offers.push(rowToProductOffer(row));
+    if (row.fetchedAt && (!latestFetchedAt || row.fetchedAt > latestFetchedAt)) {
+      latestFetchedAt = row.fetchedAt;
+    }
   }
-  return offers;
+
+  if (offers.length > 0) {
+    return {
+      offers,
+      fetchedAt: latestFetchedAt?.toISOString() ?? null,
+      stale: false,
+    };
+  }
+
+  // Fall back to expired cache when live suppliers are unavailable
+  const staleRows = options.productId
+    ? await db
+        .select()
+        .from(productOffers)
+        .where(eq(productOffers.productId, options.productId))
+        .orderBy(desc(productOffers.fetchedAt))
+        .limit(20)
+    : await db
+        .select()
+        .from(productOffers)
+        .where(like(productOffers.productTitle, titlePattern))
+        .orderBy(desc(productOffers.fetchedAt))
+        .limit(20);
+
+  const staleOffers: ProductOffer[] = [];
+  let staleFetchedAt: Date | null = null;
+  for (const row of staleRows) {
+    const key = `${row.supplierPlatform}-${row.supplierSku ?? row.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    staleOffers.push(rowToProductOffer(row));
+    if (row.fetchedAt && (!staleFetchedAt || row.fetchedAt > staleFetchedAt)) {
+      staleFetchedAt = row.fetchedAt;
+    }
+  }
+
+  return {
+    offers: staleOffers,
+    fetchedAt: staleFetchedAt?.toISOString() ?? null,
+    stale: staleOffers.length > 0,
+  };
 }
 
 export async function cacheProductOffers(
@@ -573,6 +662,19 @@ export async function recordUserEvent(
     eventType,
     metadata: metadata ?? null,
   });
+}
+
+export async function logZeroResultSearch(
+  userId: number,
+  metadata: {
+    query: string;
+    platform: string;
+    region?: string;
+    live?: boolean;
+    tab?: string;
+  }
+) {
+  await recordUserEvent(userId, "zero_result_search", metadata);
 }
 
 export async function countUserEvents(userId: number, eventType: string) {
@@ -1396,4 +1498,47 @@ export async function getActiveStripeDiscountForUser(
 
   const promoId = rows[0]?.promoId;
   return promoId ?? null;
+}
+
+export async function createPasswordResetToken(data: InsertPasswordResetToken) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(passwordResetTokens).values(data);
+}
+
+export async function getValidPasswordResetToken(tokenHash: string) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const rows = await db
+    .select()
+    .from(passwordResetTokens)
+    .where(
+      and(
+        eq(passwordResetTokens.tokenHash, tokenHash),
+        isNull(passwordResetTokens.usedAt),
+        gt(passwordResetTokens.expiresAt, new Date())
+      )
+    )
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
+export async function markPasswordResetTokenUsed(tokenId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .update(passwordResetTokens)
+    .set({ usedAt: new Date() })
+    .where(eq(passwordResetTokens.id, tokenId));
+}
+
+export async function invalidatePasswordResetTokensForUser(userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(passwordResetTokens)
+    .set({ usedAt: new Date() })
+    .where(and(eq(passwordResetTokens.userId, userId), isNull(passwordResetTokens.usedAt)));
 }

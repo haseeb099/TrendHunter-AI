@@ -22,6 +22,12 @@ import {
 
   CreditCard,
 
+  DollarSign,
+
+  Gauge,
+
+  Scale,
+
   Settings2,
 
   Shield,
@@ -42,7 +48,13 @@ const ADMIN_TABS = [
 
   { id: "activity", label: "Activity", href: "/admin/activity", icon: Activity },
 
+  { id: "research", label: "Research quality", href: "/admin/research-quality", icon: Gauge },
+
+  { id: "ranking", label: "Ranking weights", href: "/admin/ranking-config", icon: Scale },
+
   { id: "plans", label: "Plans", href: "/admin/plans", icon: CreditCard },
+
+  { id: "revenue", label: "Revenue", href: "/admin/revenue", icon: DollarSign },
 
   { id: "coupons", label: "Coupons", href: "/admin/coupons", icon: Ticket },
 
@@ -256,7 +268,13 @@ function AdminTabNav() {
 
   const [matchActivity] = useRoute("/admin/activity");
 
+  const [matchResearch] = useRoute("/admin/research-quality");
+
+  const [matchRanking] = useRoute("/admin/ranking-config");
+
   const [matchPlans] = useRoute("/admin/plans");
+
+  const [matchRevenue] = useRoute("/admin/revenue");
 
   const [matchCoupons] = useRoute("/admin/coupons");
 
@@ -268,13 +286,28 @@ function AdminTabNav() {
 
     if (href === "/admin") {
 
-      return matchUsers && !matchActivity && !matchPlans && !matchCoupons && !matchSettings;
+      return (
+        matchUsers &&
+        !matchActivity &&
+        !matchResearch &&
+        !matchRanking &&
+        !matchPlans &&
+        !matchRevenue &&
+        !matchCoupons &&
+        !matchSettings
+      );
 
     }
 
     if (href === "/admin/activity") return matchActivity;
 
+    if (href === "/admin/research-quality") return matchResearch;
+
+    if (href === "/admin/ranking-config") return matchRanking;
+
     if (href === "/admin/plans") return matchPlans;
+
+    if (href === "/admin/revenue") return matchRevenue;
 
     if (href === "/admin/coupons") return matchCoupons;
 

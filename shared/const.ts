@@ -11,3 +11,5 @@ export const PLAN_LIMIT_ERR_MSG = 'You have reached your plan limit (10004)';
 export const ACCOUNT_DEACTIVATED_ERR_MSG = 'Your account has been deactivated (10005)';
 export const ACCOUNT_PAUSED_ERR_MSG = 'Your account is paused — contact support (10006)';
 export const ACCOUNT_FLAGGED_ERR_MSG = 'Your account is under review — limited access (10007)';
+export const SUBSCRIPTION_INACTIVE_ERR_MSG =
+  'Your subscription is inactive — resubscribe to restore workspace access (10008)';

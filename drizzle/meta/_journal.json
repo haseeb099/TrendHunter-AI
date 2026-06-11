@@ -99,6 +99,27 @@
       "when": 1780895000000,
       "tag": "0013_credit_purchased_balance",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "5",
+      "when": 1780896000000,
+      "tag": "0014_legal_and_password_reset",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "5",
+      "when": 1780897000000,
+      "tag": "0015_product_graph",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "5",
+      "when": 1780898000000,
+      "tag": "0016_research_engine",
+      "breakpoints": true
     }
   ]
 }

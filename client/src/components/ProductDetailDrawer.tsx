@@ -8,7 +8,6 @@ import { SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
 import { trpc } from "@/lib/trpc";
 import type { ProductOffer, ProductSearchResult } from "@shared/searchTypes";
 import { formatProductPrice } from "@shared/searchTypes";
@@ -18,6 +17,8 @@ import { ProductProfitPanel } from "@/components/product-workspace/ProductProfit
 import { ProductCompetitorPanel } from "@/components/product-workspace/ProductCompetitorPanel";
 import { ProductIntelligenceHub } from "@/components/intelligence/ProductIntelligenceHub";
 import { PublicProductIntelligence } from "@/components/intelligence/PublicProductIntelligence";
+import { DataFreshnessBadge } from "@/components/intelligence/DataFreshnessBadge";
+import { TrendScoreExplain } from "@/components/intelligence/TrendScoreExplain";
 import type { ProductDrawerTab, ProductValidationResult } from "@/components/product-workspace/types";
 import {
   Calculator,
@@ -41,6 +42,13 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { usePlan } from "@/_core/hooks/usePlan";
 import { PlanFeatureGate } from "@/components/workspace/PlanFeatureGate";
+import { DrawerPanelFallback } from "@/components/product-workspace/DrawerPanelFallback";
+import { ProductWhyPanel } from "@/components/product-workspace/ProductWhyPanel";
+import { ProductDeltaPanel } from "@/components/product-workspace/ProductDeltaPanel";
+import { CategoryWinnersPanel } from "@/components/product-workspace/CategoryWinnersPanel";
+import { SupplierConfidencePanel } from "@/components/product-workspace/SupplierConfidencePanel";
+import { CompetitorPressurePanel } from "@/components/product-workspace/CompetitorPressurePanel";
+import { NextMovesPanel } from "@/components/product-workspace/NextMovesPanel";
 
 const drawerTabClass =
   "side-panel-tab flex-1 text-[11px] sm:text-xs px-1.5 py-2 h-auto rounded-lg border-0 shadow-none bg-transparent data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground hover:data-[state=inactive]:bg-muted/50";
@@ -106,7 +114,9 @@ export function ProductDetailDrawer({
   if (!product) return null;
 
   const currency = product.currency ?? "USD";
-  const bestOffer = offersQuery.data?.[0];
+  const offersData = offersQuery.data;
+  const offers = offersData?.offers ?? [];
+  const bestOffer = offers[0];
 
   const handlePipelineWithOffer = (offer?: ProductOffer) => {
     if (!onAddToPipeline) return;
@@ -186,8 +196,12 @@ export function ProductDetailDrawer({
                 </Badge>
               ) : null}
               {product.trendScore !== undefined ? (
-                <Badge variant="outline" className="bg-background/70 border-background/40">
-                  Score {product.trendScore}
+                <Badge variant="outline" className="bg-background/70 border-background/40 gap-1">
+                  <TrendScoreExplain
+                    score={product.trendScore}
+                    inputs={product.trendScoreInputs}
+                    className="text-foreground"
+                  />
                 </Badge>
               ) : null}
             </div>
@@ -285,6 +299,36 @@ export function ProductDetailDrawer({
                 </p>
               ) : null}
 
+              <ProductWhyPanel product={product} />
+              <ProductDeltaPanel product={product} region={product.region} />
+              <CompetitorPressurePanel product={product} />
+              <SupplierConfidencePanel product={product} />
+              <CategoryWinnersPanel product={product} region={product.region} />
+              <NextMovesPanel product={product} />
+
+              {product.rankReason ? (
+                <p className="text-xs text-muted-foreground rounded-lg border border-border bg-muted/20 px-3 py-2 leading-relaxed">
+                  <span className="font-medium text-foreground">Why trending: </span>
+                  {product.rankReason}
+                </p>
+              ) : null}
+
+              {product.rankReason ? (
+                <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                    Why in Discover
+                  </p>
+                  <p className="text-sm text-foreground leading-snug">{product.rankReason}</p>
+                </div>
+              ) : null}
+
+              {product.trendScoreInputs && product.trendScore != null ? (
+                <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">Why this trend score?</p>
+                  <TrendScoreExplain score={product.trendScore} inputs={product.trendScoreInputs} />
+                </div>
+              ) : null}
+
               {canOffers && bestOffer ? (
                 <div className="product-offer-highlight">
                   <p className="text-xs font-semibold uppercase tracking-wider text-primary mb-1">
@@ -309,9 +353,11 @@ export function ProductDetailDrawer({
                   </Button>
                 </div>
               ) : canOffers && offersQuery.isLoading ? (
-                <div className="flex justify-center py-6">
-                  <Spinner />
-                </div>
+                <DrawerPanelFallback
+                  loading
+                  title=""
+                  loadingLabel="Loading supplier offers…"
+                />
               ) : null}
 
               <div className="grid grid-cols-2 gap-2 pt-1">
@@ -336,16 +382,20 @@ export function ProductDetailDrawer({
                 <PlanFeatureGate feature="supplier_offers" />
               ) : null}
               {canOffers && offersQuery.error ? (
-                <Alert variant="destructive" className="text-sm">
-                  {offersQuery.error.message}
-                </Alert>
+                <DrawerPanelFallback
+                  icon={Package}
+                  title="Could not load offers"
+                  description={offersQuery.error.message}
+                />
               ) : null}
               {canOffers && offersQuery.isLoading ? (
-                <div className="flex justify-center py-12">
-                  <Spinner />
-                </div>
-              ) : canOffers && offersQuery.data && offersQuery.data.length > 0 ? (
-                offersQuery.data.map((offer, index) => (
+                <DrawerPanelFallback
+                  loading
+                  title=""
+                  loadingLabel="Loading supplier offers…"
+                />
+              ) : canOffers && offersQuery.data && offers.length > 0 ? (
+                offers.map((offer, index) => (
                   <div
                     key={offer.id}
                     className={`product-supplier-card ${index === 0 ? "product-supplier-card-best" : ""}`}
@@ -364,11 +414,14 @@ export function ProductDetailDrawer({
                           {offer.warehouse} · Ship from {offer.shipFrom}
                         </p>
                       </div>
-                      {offer.isDemo ? (
-                        <Badge variant="outline">Demo</Badge>
-                      ) : (
-                        <Badge className="bg-success/15 text-success border-success/25">Live</Badge>
-                      )}
+                      {index === 0 && offersData ? (
+                        <DataFreshnessBadge
+                          dataMode={offersData.dataMode}
+                          cachedAt={offersData.cachedAt}
+                          stale={offersData.stale}
+                          unavailable={offers.length === 0}
+                        />
+                      ) : null}
                     </div>
                     <div className="grid grid-cols-2 gap-3 text-sm mb-3">
                       <div>
@@ -427,12 +480,13 @@ export function ProductDetailDrawer({
                     </div>
                   </div>
                 ))
-              ) : (
-                <div className="product-panel-empty">
-                  <Package className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground">No supplier offers found for this product.</p>
-                </div>
-              )}
+              ) : canOffers ? (
+                <DrawerPanelFallback
+                  icon={Package}
+                  title="No supplier offers"
+                  description="We couldn't find CJ or AliExpress offers for this product yet. Try Validate or adjust the title."
+                />
+              ) : null}
             </TabsContent>
 
             <TabsContent value="validate" className="mt-0">
@@ -453,12 +507,20 @@ export function ProductDetailDrawer({
             </TabsContent>
 
             <TabsContent value="profit" className="mt-0">
-              <ProductProfitPanel
-                productTitle={product.title}
-                productCost={bestOffer?.unitCost ?? 0}
-                shippingCost={bestOffer?.shippingCost ?? 0}
-                sellingPrice={product.price}
-              />
+              {product.price > 0 ? (
+                <ProductProfitPanel
+                  productTitle={product.title}
+                  productCost={bestOffer?.unitCost ?? 0}
+                  shippingCost={bestOffer?.shippingCost ?? 0}
+                  sellingPrice={product.price}
+                />
+              ) : (
+                <DrawerPanelFallback
+                  icon={Calculator}
+                  title="Add a selling price"
+                  description="This product has no price yet. Open the listing or add it manually to model margin."
+                />
+              )}
             </TabsContent>
 
             <TabsContent value="competitors" className="mt-0">

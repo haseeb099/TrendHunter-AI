@@ -164,6 +164,36 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription): Pro
   });
 }
 
+function invoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
+  const subscriptionRef = (
+    invoice as Stripe.Invoice & {
+      subscription?: string | Stripe.Subscription | null;
+    }
+  ).subscription;
+  if (!subscriptionRef) return null;
+  return typeof subscriptionRef === "string" ? subscriptionRef : subscriptionRef.id ?? null;
+}
+
+async function handleInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
+  const subscriptionId = invoiceSubscriptionId(invoice);
+  if (!subscriptionId) return;
+
+  const stripe = getStripeClient();
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+  const userId = Number(subscription.metadata?.userId);
+  if (!userId) {
+    console.warn(
+      `[Stripe] invoice.payment_failed missing metadata.userId (invoice ${invoice.id}, subscription ${subscriptionId})`
+    );
+    return;
+  }
+
+  await updateUserSubscription(userId, {
+    planStatus: "expired",
+    stripeSubscriptionId: subscription.id,
+  });
+}
+
 export async function handleStripeWebhook(req: Request, res: Response): Promise<void> {
   if (!isStripeConfigured()) {
     res.status(503).send("Stripe not configured");
@@ -206,6 +236,9 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
         break;
       case "customer.subscription.deleted":
         await handleSubscriptionDeleted(event.data.object as Stripe.Subscription);
+        break;
+      case "invoice.payment_failed":
+        await handleInvoicePaymentFailed(event.data.object as Stripe.Invoice);
         break;
       default:
         break;

@@ -106,4 +106,78 @@ describe("billing router", () => {
 
     await expect(caller.billing.selectPlan({ planId: "pro" })).rejects.toThrow(TRPCError);
   });
+
+  it("createCheckoutSession blocks agency self-serve", async () => {
+    vi.mocked(stripeModule.isStripeConfigured).mockReturnValue(true);
+    const caller = appRouter.createCaller(createTestContext());
+
+    await expect(caller.billing.createCheckoutSession({ planId: "agency" })).rejects.toThrow(
+      TRPCError
+    );
+  });
+
+  it("selectPlan blocks agency self-serve", async () => {
+    const caller = appRouter.createCaller(createTestContext());
+
+    await expect(caller.billing.selectPlan({ planId: "agency" })).rejects.toThrow(TRPCError);
+  });
+});
+
+describe("inactive subscription hard paywall", () => {
+  it("blocks feature-gated intelligence routes", async () => {
+    const { buildSubscriptionInfo: realBuild } = await vi.importActual<typeof import("./plans")>(
+      "./plans"
+    );
+    vi.mocked((await import("./plans")).buildSubscriptionInfo).mockImplementation(realBuild);
+
+    const inactiveUser = createTestUser({ planId: "pro", planStatus: "expired" });
+    const caller = appRouter.createCaller(createTestContext(inactiveUser));
+
+    await expect(
+      caller.intelligence.getTrendPulse({ keyword: "yoga mat", live: false })
+    ).rejects.toThrow(TRPCError);
+  });
+
+  it("blocks search for inactive subscriptions", async () => {
+    const { buildSubscriptionInfo: realBuild } = await vi.importActual<typeof import("./plans")>(
+      "./plans"
+    );
+    vi.mocked((await import("./plans")).buildSubscriptionInfo).mockImplementation(realBuild);
+
+    const inactiveUser = createTestUser({ planId: "pro", planStatus: "expired" });
+    const caller = appRouter.createCaller(createTestContext(inactiveUser));
+
+    await expect(
+      caller.search.searchProducts({
+        query: "yoga mat",
+        platform: "all",
+        filters: { region: "US" },
+      })
+    ).rejects.toThrow(TRPCError);
+  });
+
+  it("blocks watchlist reads for inactive subscriptions", async () => {
+    const { buildSubscriptionInfo: realBuild } = await vi.importActual<typeof import("./plans")>(
+      "./plans"
+    );
+    vi.mocked((await import("./plans")).buildSubscriptionInfo).mockImplementation(realBuild);
+
+    const inactiveUser = createTestUser({ planId: "pro", planStatus: "expired" });
+    const caller = appRouter.createCaller(createTestContext(inactiveUser));
+
+    await expect(caller.watchlist.getWatchlist()).rejects.toThrow(TRPCError);
+  });
+
+  it("allows billing subscription read for inactive users", async () => {
+    const { buildSubscriptionInfo: realBuild } = await vi.importActual<typeof import("./plans")>(
+      "./plans"
+    );
+    vi.mocked((await import("./plans")).buildSubscriptionInfo).mockImplementation(realBuild);
+
+    const inactiveUser = createTestUser({ planId: "pro", planStatus: "expired" });
+    const caller = appRouter.createCaller(createTestContext(inactiveUser));
+
+    const sub = await caller.billing.getSubscription();
+    expect(sub).toBeDefined();
+  });
 });

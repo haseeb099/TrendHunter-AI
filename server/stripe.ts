@@ -19,6 +19,28 @@ export function isStripeConfigured(): boolean {
   );
 }
 
+export async function pingStripe(): Promise<{
+  configured: boolean;
+  ok: boolean;
+  error?: string;
+}> {
+  if (!isStripeConfigured()) {
+    return { configured: false, ok: true };
+  }
+
+  try {
+    const stripe = getStripeClient();
+    await stripe.balance.retrieve();
+    return { configured: true, ok: true };
+  } catch (err) {
+    return {
+      configured: true,
+      ok: false,
+      error: err instanceof Error ? err.message : "stripe_unreachable",
+    };
+  }
+}
+
 export function getStripeClient(): Stripe {
   if (!ENV.stripeSecretKey) {
     throw new TRPCError({
@@ -47,7 +69,7 @@ const STRIPE_PRICE_ENV: Record<Exclude<PlanId, "trial">, string> = {
 };
 
 export function getStripePriceId(planId: PlanId): string | null {
-  if (planId === "trial") return null;
+  if (planId === "trial" || planId === "agency") return null;
   const envKey = STRIPE_PRICE_ENV[planId];
   const fromConfig = ENV[PRICE_ENV_MAP[planId]];
   const value =

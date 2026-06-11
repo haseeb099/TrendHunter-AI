@@ -5,6 +5,7 @@ import { KeywordExplorer } from "@/components/intelligence/KeywordExplorer";
 import { TrendPulsePanel } from "@/components/intelligence/TrendPulsePanel";
 import { MarketDigestCard } from "@/components/intelligence/MarketDigestCard";
 import { IntelligenceVerdict } from "@/components/intelligence/IntelligenceVerdict";
+import { DataCoverageBanner } from "@/components/intelligence/DataCoverageBanner";
 import { trpc } from "@/lib/trpc";
 import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -47,6 +48,8 @@ export default function TrendPulsePage() {
         }
       />
 
+      <DataCoverageBanner pageId="trend-pulse" />
+
       <div className="rounded-xl border border-border bg-muted/15 p-4 text-sm text-muted-foreground">
         <p>
           <strong className="text-foreground">How to read this:</strong> The momentum score (0–100)
@@ -75,7 +78,7 @@ export default function TrendPulsePage() {
         <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
           <section className="card-elevated p-5 sm:p-6 space-y-6">
             <h2 className="font-display font-semibold capitalize">{activeKeyword}</h2>
-            <IntelligenceVerdict summary={intelQuery.data} />
+            <IntelligenceVerdict summary={intelQuery.data} stale={intelQuery.data?.stale} />
             <TrendPulsePanel keyword={activeKeyword} region={region} />
           </section>
           <aside className="space-y-3">

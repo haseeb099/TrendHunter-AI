@@ -17,6 +17,8 @@ export type TrendSignal = {
   risingQueries: string[];
   fetchedAt: string;
   isLive: boolean;
+  /** True when serving expired cache because live refresh was not used */
+  stale?: boolean;
 };
 
 export type AdLibraryCreative = {
@@ -39,6 +41,7 @@ export type AdLibrarySnapshot = {
   gaps: string[];
   fetchedAt: string;
   isLive: boolean;
+  stale?: boolean;
 };
 
 export type TikTokAdCreative = {
@@ -62,6 +65,27 @@ export type TikTokAdsSnapshot = {
   fetchedAt: string;
   isLive: boolean;
   source: "searchapi" | "scrapecreators" | "cached";
+  stale?: boolean;
+};
+
+export type IntelCoverageLevel = "high" | "medium" | "low";
+
+export type CachedIntelContext = {
+  trendFetchedAt: string | null;
+  adsFetchedAt: string | null;
+  trendStale: boolean;
+  adsStale: boolean;
+  coverage: IntelCoverageLevel;
+  summary: string;
+};
+
+export type MarketGapItem = {
+  title: string;
+  opportunity: string;
+  demand_level: string;
+  competition_level: string;
+  estimated_margin: string;
+  confidence: IntelCoverageLevel;
 };
 
 export type MarketDigestItem = {

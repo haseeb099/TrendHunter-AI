@@ -216,6 +216,9 @@ export const PUBLIC_PLANS: PlanDefinition[] = Object.values(PLAN_DEFINITIONS).so
 
 export const PAID_PLAN_IDS: PlanId[] = ["starter", "pro", "business", "agency"];
 
+/** Plans available for self-serve Stripe checkout (Agency is contact/waitlist only). */
+export const SELF_SERVE_CHECKOUT_PLAN_IDS: PlanId[] = ["starter", "pro", "business"];
+
 export const PLAN_RANK: Record<PlanId, number> = {
   trial: 2,
   starter: 1,
@@ -292,6 +295,8 @@ export type SubscriptionInfo = {
     remaining: number | null;
   };
   canStartTrial: boolean;
+  /** True when user has a Stripe customer record (portal available even if sub inactive) */
+  hasStripeCustomer?: boolean;
 };
 
 export function planHasFeature(

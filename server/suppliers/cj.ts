@@ -56,15 +56,15 @@ export async function searchCjOffers(
   region?: RegionCode
 ): Promise<{ offers: ProductOffer[]; live: boolean; error?: string }> {
   if (!isCjApiConfigured()) {
-    return { offers: getCjMockOffers(title, region), live: false };
+    return { offers: [], live: false };
   }
 
   const token = await getCjAccessToken();
   if (!token) {
     return {
-      offers: getCjMockOffers(title, region),
+      offers: [],
       live: false,
-      error: "CJ token exchange failed — using demo offers",
+      error: "CJ token exchange failed",
     };
   }
 
@@ -89,7 +89,7 @@ export async function searchCjOffers(
     if (!response.ok) {
       console.warn("[CJ] API error:", response.status, rawText);
       return {
-        offers: getCjMockOffers(title, region),
+        offers: [],
         live: false,
         error: `CJ API error (${response.status})`,
       };
@@ -105,7 +105,7 @@ export async function searchCjOffers(
     if (data.success === false || (data.code !== undefined && data.code !== 200)) {
       console.warn("[CJ] API business error:", data.message ?? data.code);
       return {
-        offers: getCjMockOffers(title, region),
+        offers: [],
         live: false,
         error: data.message ?? `CJ API error (${data.code})`,
       };
@@ -113,7 +113,7 @@ export async function searchCjOffers(
 
     const items = data.data?.list ?? [];
     if (items.length === 0) {
-      return { offers: getCjMockOffers(title, region), live: false };
+      return { offers: [], live: false };
     }
 
     const offers = items.slice(0, 5).map((item, i) => {
@@ -144,50 +144,9 @@ export async function searchCjOffers(
   } catch (err) {
     console.warn("[CJ] fetch failed:", err);
     return {
-      offers: getCjMockOffers(title, region),
+      offers: [],
       live: false,
       error: "CJ request failed",
     };
   }
-}
-
-function getCjMockOffers(title: string, region?: RegionCode): ProductOffer[] {
-  const mapping = resolveRegion(region);
-  const base = 8 + (title.length % 10);
-  return [
-    {
-      id: `cj-mock-1`,
-      productTitle: `${title} — CJ US Warehouse`,
-      supplierPlatform: "cj",
-      supplierSku: "CJ-US-001",
-      warehouse: "US",
-      shipFrom: "US",
-      unitCost: base + 2,
-      shippingCost: 4.5,
-      moq: 1,
-      processingDays: 1,
-      shippingDaysMin: 3,
-      shippingDaysMax: 7,
-      currency: mapping.currency,
-      landedCost: base + 6.5,
-      isDemo: true,
-    },
-    {
-      id: `cj-mock-2`,
-      productTitle: `${title} — CJ CN Warehouse`,
-      supplierPlatform: "cj",
-      supplierSku: "CJ-CN-002",
-      warehouse: "CN",
-      shipFrom: "CN",
-      unitCost: base,
-      shippingCost: 2.99,
-      moq: 2,
-      processingDays: 2,
-      shippingDaysMin: 10,
-      shippingDaysMax: 18,
-      currency: mapping.currency,
-      landedCost: base + 2.99,
-      isDemo: true,
-    },
-  ];
 }

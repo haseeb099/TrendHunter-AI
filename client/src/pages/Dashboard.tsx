@@ -53,14 +53,16 @@ function GatedContent({
 export default function Dashboard() {
   const [location, setLocation] = useLocation();
   const activeTab = getActiveTab(location);
-  const { isRestricted, loading: planLoading } = usePlan();
+  const { isRestricted, isActive, loading: planLoading, role } = usePlan();
 
   useEffect(() => {
-    if (planLoading || !isRestricted || !activeTab) return;
-    if (!ALWAYS_ACCESSIBLE_TABS.includes(activeTab)) {
+    if (planLoading || !activeTab) return;
+    if (ALWAYS_ACCESSIBLE_TABS.includes(activeTab)) return;
+    const blocked = isRestricted || (!isActive && role !== "admin");
+    if (blocked) {
       setLocation(getDashboardPath("billing"));
     }
-  }, [isRestricted, activeTab, planLoading, setLocation]);
+  }, [isRestricted, isActive, role, activeTab, planLoading, setLocation]);
 
   if (activeTab === null) {
     return (

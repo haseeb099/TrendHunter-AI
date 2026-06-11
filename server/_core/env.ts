@@ -47,6 +47,7 @@ export const ENV = {
   serpAmazonDomain: process.env.SERPAPI_AMAZON_DOMAIN ?? "amazon.com",
   serpGoogleCountry: process.env.SERPAPI_GOOGLE_COUNTRY ?? "us",
   serpGoogleLanguage: process.env.SERPAPI_GOOGLE_LANGUAGE ?? "en",
+  justSerpApiKey: process.env.JUSTSERP_API_KEY?.trim() ?? "",
   tiktokAppKey: process.env.TIKTOK_APP_KEY ?? "",
   tiktokAppSecret: process.env.TIKTOK_APP_SECRET ?? "",
   tiktokAccessToken: process.env.TIKTOK_ACCESS_TOKEN ?? "",
@@ -66,8 +67,13 @@ export const ENV = {
   searchCacheTtlHours: parseInt(process.env.SEARCH_CACHE_TTL_HOURS ?? "24", 10),
   offersCacheTtlHours: parseInt(process.env.OFFERS_CACHE_TTL_HOURS ?? "24", 10),
   ingestMode: process.env.INGEST_MODE !== "live_first",
-  serpApiDailyCap: parseInt(process.env.SERPAPI_DAILY_CAP ?? "3", 10),
-  metaAdsDailyCap: parseInt(process.env.META_ADS_DAILY_CAP ?? "10", 10),
+  serpApiDailyCap: parseInt(process.env.SERPAPI_DAILY_CAP ?? "10", 10),
+  justSerpDailyCap: parseInt(process.env.JUSTSERP_DAILY_CAP ?? "10", 10),
+  metaAdsDailyCap: parseInt(process.env.META_ADS_DAILY_CAP ?? "15", 10),
+  discoveryQueueMaxPerRun: parseInt(process.env.DISCOVERY_QUEUE_MAX_PER_RUN ?? "40", 10),
+  discoveryQueuePriorityMin: parseFloat(process.env.DISCOVERY_QUEUE_PRIORITY_MIN ?? "0.4"),
+  rankingVersion: process.env.RANKING_VERSION === "v1" ? "v1" : "v2",
+  healthProbeExternal: process.env.HEALTH_PROBE_EXTERNAL === "true",
   liveSearchRequiresCredits: process.env.LIVE_SEARCH_REQUIRES_CREDITS !== "false",
   metaAccessToken: process.env.META_ACCESS_TOKEN ?? "",
   ingestSecret: process.env.INGEST_SECRET ?? "",
@@ -100,6 +106,13 @@ export const ENV = {
   stripePriceCredits50: process.env.STRIPE_PRICE_CREDITS_50?.trim() ?? "",
   stripePriceCredits100: process.env.STRIPE_PRICE_CREDITS_100?.trim() ?? "",
   stripePriceCredits250: process.env.STRIPE_PRICE_CREDITS_250?.trim() ?? "",
+  sentryDsn: process.env.SENTRY_DSN?.trim() ?? "",
+  betaMode: process.env.BETA_MODE === "true",
+  betaInviteCode: process.env.BETA_INVITE_CODE?.trim() ?? "",
+  passwordResetTestMode:
+    process.env.PASSWORD_RESET_TEST_MODE === "true" && process.env.NODE_ENV !== "production",
+  googleClientId: process.env.GOOGLE_CLIENT_ID?.trim() ?? "",
+  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET?.trim() ?? "",
 };
 
 export function isAiConfigured(): boolean {

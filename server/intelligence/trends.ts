@@ -1,7 +1,8 @@
 import type { RegionCode } from "@shared/searchTypes";
 import type { TrendSignal } from "@shared/intelligenceTypes";
 import { ENV } from "../_core/env";
-import { isSerpApiConfigured } from "../search/serpapi";
+import { isSerpApiConfigured, isSerpConfigured } from "../search/serpapi";
+import { isJustSerpConfigured, fetchGoogleTrendsJustSerp } from "../search/justserp";
 import { desc, and, eq, gt } from "drizzle-orm";
 import { trendSignals } from "../../drizzle/schema";
 import { getDb } from "../db";
@@ -45,14 +46,25 @@ async function fetchGoogleTrendsLive(
   keyword: string,
   region: RegionCode
 ): Promise<TrendSignal | null> {
-  if (!isSerpApiConfigured()) return null;
+  if (!isSerpConfigured()) return null;
 
-  const canUse = await canUseProviderToday("serpapi", ENV.serpApiDailyCap);
-  if (!canUse) {
-    console.warn("[Trends] SerpAPI daily cap reached");
-    return null;
+  if (isSerpApiConfigured()) {
+    const canUse = await canUseProviderToday("serpapi", ENV.serpApiDailyCap);
+    if (canUse) {
+      const signal = await fetchGoogleTrendsSerpApi(keyword, region);
+      if (signal) return signal;
+    } else {
+      console.warn("[Trends] SerpAPI daily cap reached");
+    }
   }
 
+  return fetchGoogleTrendsJustSerp(keyword, region);
+}
+
+async function fetchGoogleTrendsSerpApi(
+  keyword: string,
+  region: RegionCode
+): Promise<TrendSignal | null> {
   const url = new URL("https://serpapi.com/search.json");
   url.searchParams.set("api_key", ENV.serpApiKey);
   url.searchParams.set("engine", "google_trends");
@@ -135,7 +147,11 @@ export async function saveTrendSignal(signal: TrendSignal) {
   });
 }
 
-function rowToSignal(row: typeof trendSignals.$inferSelect, isLive: boolean): TrendSignal {
+function rowToSignal(
+  row: typeof trendSignals.$inferSelect,
+  isLive: boolean,
+  stale = false
+): TrendSignal {
   return {
     keyword: row.keyword,
     region: row.region as RegionCode,
@@ -148,6 +164,7 @@ function rowToSignal(row: typeof trendSignals.$inferSelect, isLive: boolean): Tr
     risingQueries: (row.risingQueries as string[]) ?? [],
     fetchedAt: row.fetchedAt.toISOString(),
     isLive,
+    stale: stale || undefined,
   };
 }
 
@@ -200,17 +217,53 @@ export async function getTrendSignal(
       .where(and(eq(trendSignals.keyword, kw), eq(trendSignals.region, region)))
       .orderBy(desc(trendSignals.fetchedAt))
       .limit(1);
-    if (stale[0]) return rowToSignal(stale[0], false);
+    if (stale[0]) return rowToSignal(stale[0], false, true);
   }
 
   return null;
 }
 
+/** Collect unique rising queries from recent trend signals for a region. */
+export async function collectRisingQueriesForRegion(
+  region: RegionCode,
+  limit = 5
+): Promise<string[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const rows = await db
+    .select({ risingQueries: trendSignals.risingQueries })
+    .from(trendSignals)
+    .where(eq(trendSignals.region, region))
+    .orderBy(desc(trendSignals.fetchedAt))
+    .limit(20);
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const row of rows) {
+    const queries = (row.risingQueries as string[] | null) ?? [];
+    for (const q of queries) {
+      const normalized = q.trim().toLowerCase();
+      if (!normalized || seen.has(normalized)) continue;
+      seen.add(normalized);
+      out.push(normalized);
+      if (out.length >= limit) return out;
+    }
+  }
+  return out;
+}
+
 export async function ingestTrendKeywords(keywords: string[], region: RegionCode) {
   let count = 0;
   for (const keyword of keywords) {
-    const canUse = await canUseProviderToday("serpapi", ENV.serpApiDailyCap);
-    if (!canUse) break;
+    const serpCanUse =
+      isSerpApiConfigured() &&
+      (await canUseProviderToday("serpapi", ENV.serpApiDailyCap));
+    const justSerpCanUse =
+      isJustSerpConfigured() &&
+      (await canUseProviderToday("justserp", ENV.justSerpDailyCap));
+    if (!serpCanUse && !justSerpCanUse) break;
+
     const signal = await fetchGoogleTrendsLive(keyword, region);
     if (signal) {
       await saveTrendSignal(signal);

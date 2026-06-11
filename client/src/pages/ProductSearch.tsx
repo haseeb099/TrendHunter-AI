@@ -16,20 +16,40 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PageHeader } from "@/components/PageHeader";
-import { ProviderStatusBar } from "@/components/ProviderStatusBar";
 import { EmptyState } from "@/components/EmptyState";
 import { ProductCard } from "@/components/ProductCard";
 import { ProductDetailDrawer } from "@/components/ProductDetailDrawer";
 import type { ProductDrawerTab } from "@/components/product-workspace/types";
 import type { ProductValidationResult } from "@/components/product-workspace/types";
 import { SearchFilterDrawer } from "@/components/SearchFilterDrawer";
-import { Search, Filter, Info, Sparkles, Compass, Zap } from "lucide-react";
+import { Search, Filter, Info, Sparkles, Compass, Zap, Database } from "lucide-react";
 import { DataFreshnessBadge } from "@/components/intelligence/DataFreshnessBadge";
+import { ProviderStatusBar } from "@/components/intelligence/ProviderStatusBar";
 import { Switch } from "@/components/ui/switch";
 import { trpc } from "@/lib/trpc";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 import type { ProductHuntFilters, ProductSearchResult, RegionCode } from "@shared/searchTypes";
+import { OnboardingChecklist } from "@/components/onboarding/OnboardingChecklist";
+import { useOnboarding } from "@/_core/hooks/useOnboarding";
+
+const LIVE_SEARCH_PREF_KEY = "trendhunter:liveSearch";
+
+function readLiveSearchPref(): boolean {
+  try {
+    return localStorage.getItem(LIVE_SEARCH_PREF_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function persistLiveSearchPref(value: boolean) {
+  try {
+    localStorage.setItem(LIVE_SEARCH_PREF_KEY, String(value));
+  } catch {
+    /* ignore */
+  }
+}
 
 type SearchPlatform = "all" | "ebay" | "amazon" | "shopify" | "tiktok";
 
@@ -49,7 +69,13 @@ export default function ProductSearch() {
   });
   const [detailProduct, setDetailProduct] = useState<ProductSearchResult | null>(null);
   const [drawerTab, setDrawerTab] = useState<ProductDrawerTab>("overview");
-  const [liveSearch, setLiveSearch] = useState(false);
+  const [liveSearch, setLiveSearch] = useState(readLiveSearchPref);
+  const { completeStep } = useOnboarding();
+
+  const handleLiveSearchChange = (checked: boolean) => {
+    setLiveSearch(checked);
+    persistLiveSearchPref(checked);
+  };
 
   const openProductDrawer = (product: ProductSearchResult, tab: ProductDrawerTab = "overview") => {
     setDetailProduct(product);
@@ -57,7 +83,6 @@ export default function ProductSearch() {
   };
 
   const filterOptions = trpc.search.getFilterOptions.useQuery();
-  const providersQuery = trpc.search.getProviderStatus.useQuery();
   const savedSearchesQuery = trpc.search.getSavedSearches.useQuery(undefined, {
     enabled: activeTab === "search",
   });
@@ -108,9 +133,19 @@ export default function ProductSearch() {
   const recordDiscoverView = trpc.analytics.recordDiscoverView.useMutation();
 
   const trendingQuery = trpc.trending.getFeed.useQuery(
-    { region: huntFilters.region, category: huntFilters.category },
+    {
+      region: huntFilters.region,
+      category: huntFilters.category,
+      filters: mergedFilters,
+    },
     { enabled: activeTab === "discover" }
   );
+
+  useEffect(() => {
+    if (activeTab === "discover" && trendingQuery.data && trendingQuery.data.results.length > 0) {
+      completeStep("discover");
+    }
+  }, [activeTab, trendingQuery.data?.results.length, completeStep]);
 
   useEffect(() => {
     if (activeTab === "discover" && trendingQuery.data) {
@@ -141,6 +176,7 @@ export default function ProductSearch() {
   const addToWatchlist = trpc.watchlist.addToWatchlist.useMutation({
     onSuccess: async () => {
       await utils.watchlist.getWatchlist.invalidate();
+      completeStep("watchlist");
       toast.success("Added to watchlist");
     },
     onError: (error) => toast.error(error.message || "Failed to add to watchlist"),
@@ -150,6 +186,7 @@ export default function ProductSearch() {
     onSuccess: async () => {
       await utils.pipeline.getPipelineItems.invalidate();
       await utils.analytics.getDashboardMetrics.invalidate();
+      completeStep("pipeline");
       toast.success("Added to pipeline");
     },
     onError: (error) => toast.error(error.message || "Failed to add to pipeline"),
@@ -258,70 +295,37 @@ export default function ProductSearch() {
   const isLoading = activeTab === "discover" ? trendingQuery.isFetching : searchQuery.isFetching;
   const activeError = activeTab === "discover" ? trendingQuery.error : searchQuery.error;
 
-  const activeProviders = providersQuery.data?.filter((p) => p.configured && p.id !== "mock") ?? [];
-  const freeProviders = activeProviders.filter((p) => p.tier === "free");
-  const paidProviders = activeProviders.filter((p) => p.tier === "paid");
-  const tiktokConfigured = providersQuery.data?.find((p) => p.id === "tiktok")?.configured ?? false;
-
   const activeFilterChips = useMemo(() => {
     const chips: string[] = [];
     if (huntFilters.region) chips.push(`Region: ${huntFilters.region}`);
     if (huntFilters.category) chips.push(`Category: ${huntFilters.category}`);
+    if (priceMin > 0 || priceMax < 1000) chips.push(`Price: $${priceMin}–$${priceMax}`);
     if (huntFilters.shipFrom?.length) chips.push(`Ship: ${huntFilters.shipFrom.join(", ")}`);
     if (huntFilters.minRating) chips.push(`Rating ≥ ${huntFilters.minRating}`);
     if (huntFilters.maxShippingDays) chips.push(`Ship ≤ ${huntFilters.maxShippingDays}d`);
+    if (huntFilters.sort && huntFilters.sort !== "trend_score") {
+      chips.push(`Sort: ${huntFilters.sort.replace("_", " ")}`);
+    }
     return chips;
-  }, [huntFilters]);
+  }, [huntFilters, priceMin, priceMax]);
+
+  const discoverNeedsIngest =
+    activeTab === "discover" &&
+    !trendingQuery.isFetching &&
+    trendingQuery.data &&
+    trendingQuery.data.results.length === 0 &&
+    trendingQuery.data.warnings?.some((w) => w.toLowerCase().includes("ingest"));
 
   return (
     <div className="space-y-8">
       <PageHeader
         title="Product Search"
-        description="Discover and search across free catalogs, TikTok, CJ suppliers — plus paid sources when keys are added."
-        badge={
-          activeProviders.length > 0 ? (
-            <div className="flex gap-1.5 flex-wrap">
-              {freeProviders.length > 0 ? (
-                <Badge variant="secondary" className="text-success border-success/20 bg-success/10">
-                  {freeProviders.length} free
-                </Badge>
-              ) : null}
-              {paidProviders.length > 0 ? (
-                <Badge variant="secondary" className="text-primary">
-                  {paidProviders.length} live
-                </Badge>
-              ) : null}
-            </div>
-          ) : (
-            <Badge variant="outline" className="text-warning">
-              Demo mode
-            </Badge>
-          )
-        }
+        description="Discover trending products and search connected marketplaces — cached by default, live on demand."
       />
 
-      <ProviderStatusBar providers={providersQuery.data} isLoading={providersQuery.isLoading} />
+      <ProviderStatusBar />
 
-      {providersQuery.data && activeProviders.length === 0 && (
-        <Alert className="border-border bg-muted/40">
-          <Info className="h-4 w-4 text-muted-foreground" />
-          <AlertDescription className="text-muted-foreground">
-            No data sources active. Free catalogs should load automatically — restart the server if
-            this persists. Add eBay / SerpAPI when approved.
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {providersQuery.data && freeProviders.length > 0 && paidProviders.length === 0 && (
-        <Alert className="border-success/25 bg-success/5">
-          <Info className="h-4 w-4 text-success" />
-          <AlertDescription>
-            Running on free catalogs (DummyJSON, FakeStore) plus your
-            configured TikTok/CJ keys. SerpAPI is paused — re-enable when you have quota. eBay &
-            AliExpress will activate when approved.
-          </AlertDescription>
-        </Alert>
-      )}
+      <OnboardingChecklist />
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "discover" | "search")}>
         <TabsList>
@@ -339,7 +343,7 @@ export default function ProductSearch() {
           {trendingQuery.data && !trendingQuery.isFetching ? (
             <div className="flex justify-end">
               <DataFreshnessBadge
-                dataMode={trendingQuery.data.dataMode ?? (trendingQuery.data.isDemo ? "demo" : "cached")}
+                dataMode={trendingQuery.data.dataMode ?? "cached"}
                 cachedAt={trendingQuery.data.cachedAt}
                 stale={trendingQuery.data.stale}
               />
@@ -432,7 +436,7 @@ export default function ProductSearch() {
                   <Switch
                     id="live-search"
                     checked={liveSearch}
-                    onCheckedChange={setLiveSearch}
+                    onCheckedChange={handleLiveSearchChange}
                   />
                   <Label htmlFor="live-search" className="text-xs cursor-pointer flex items-center gap-1">
                     <Zap className="w-3.5 h-3.5" />
@@ -458,6 +462,25 @@ export default function ProductSearch() {
                 </Button>
               </div>
 
+              <div className="px-4 sm:px-5 pb-4 flex items-start gap-2 text-xs text-muted-foreground border-b border-border bg-muted/10">
+                {liveSearch ? (
+                  <>
+                    <Zap className="w-3.5 h-3.5 shrink-0 mt-0.5 text-warning" />
+                    <span>
+                      Live search queries marketplaces now and uses <strong>1 credit</strong> per search.
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Database className="w-3.5 h-3.5 shrink-0 mt-0.5 text-primary" />
+                    <span>
+                      <strong>Cached search (default)</strong> — free, instant results from saved snapshots.
+                      Enable Live when you need fresh marketplace data.
+                    </span>
+                  </>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-4 sm:p-5">
                 <div className="space-y-2">
                   <Label>Platform</Label>
@@ -471,7 +494,7 @@ export default function ProductSearch() {
                       <SelectItem value="amazon">Amazon</SelectItem>
                       <SelectItem value="shopify">Shopify / Retail</SelectItem>
                       <SelectItem value="tiktok">
-                        {tiktokConfigured ? "TikTok Shop" : "TikTok Shop (demo)"}
+                        TikTok Shop
                       </SelectItem>
                     </SelectContent>
                   </Select>
@@ -577,7 +600,22 @@ export default function ProductSearch() {
         </Alert>
       ))}
 
-      {activeData && !isLoading && (
+      {discoverNeedsIngest ? (
+        <EmptyState
+          icon={Compass}
+          title="Discover needs trending data"
+          description="No cached trending snapshot exists yet. Run the daily ingest locally or wait for the scheduled job to populate Discover."
+          action={{
+            label: "Copy ingest command",
+            onClick: () => {
+              void navigator.clipboard.writeText("pnpm ingest:daily");
+              toast.success("Copied: pnpm ingest:daily");
+            },
+          }}
+        />
+      ) : null}
+
+      {activeData && !isLoading && !discoverNeedsIngest && (
         <>
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <h2 className="font-display text-xl font-semibold">
@@ -585,12 +623,12 @@ export default function ProductSearch() {
             </h2>
             <div className="flex gap-2 flex-wrap items-center">
               <DataFreshnessBadge
-                dataMode={activeData.dataMode ?? (activeData.isDemo ? "demo" : "cached")}
+                dataMode={activeData.dataMode ?? "cached"}
                 cachedAt={activeData.cachedAt}
                 stale={activeData.stale}
                 creditsUsed={activeData.creditsUsed}
               />
-              {!activeData.isDemo && activeData.sources.length > 0
+              {activeData.sources.length > 0
                 ? activeData.sources.map((source) => (
                     <Badge key={source} variant="outline" className="text-[10px] capitalize">
                       {source.replace("_", " ")}
@@ -612,15 +650,43 @@ export default function ProductSearch() {
                   savePending={addToWatchlist.isPending}
                   pipelinePending={addToPipeline.isPending}
                   showTrendBadge={activeTab === "discover"}
+                  showRankReason
                 />
               ))}
             </div>
           ) : (
-            <EmptyState
-              icon={Search}
-              title="No products found"
-              description="Try different keywords, region, or widen your filters."
-            />
+            <div className="space-y-4">
+              <EmptyState
+                icon={Search}
+                title="No products found"
+                description="Try different keywords, region, or widen your filters."
+              />
+              {activeData.recoverySuggestions && activeData.recoverySuggestions.length > 0 ? (
+                <Card className="p-4 space-y-3">
+                  <p className="text-sm font-medium">Try these related searches</p>
+                  <div className="flex flex-wrap gap-2">
+                    {activeData.recoverySuggestions.map((suggestion) => (
+                      <Button
+                        key={suggestion}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setQuery(suggestion);
+                          setSubmittedQuery(suggestion);
+                        }}
+                      >
+                        {suggestion}
+                      </Button>
+                    ))}
+                  </div>
+                  {activeTab === "search" ? (
+                    <p className="text-xs text-muted-foreground">
+                      Live search uses 1 credit when providers return results.
+                    </p>
+                  ) : null}
+                </Card>
+              ) : null}
+            </div>
           )}
         </>
       )}

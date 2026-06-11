@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { PAID_PLAN_IDS, type FeatureId, type PlanId } from "@shared/plans";
+import {
+  PAID_PLAN_IDS,
+  SELF_SERVE_CHECKOUT_PLAN_IDS,
+  type FeatureId,
+  type PlanId,
+} from "@shared/plans";
 import { authenticatedProcedure, publicProcedure, router } from "./_core/trpc";
 import { getActiveStripeDiscountForUser, getUserByOpenId } from "./db";
 import { redeemCouponForUser } from "./coupons";
@@ -17,6 +22,9 @@ import {
   requireStripeCreditPackPriceId,
   requireStripePriceId,
 } from "./stripe";
+import { createLogger } from "./_core/logger";
+
+const log = createLogger("billing");
 
 const planIdSchema = z.enum(["trial", "starter", "pro", "business", "agency"]);
 
@@ -62,8 +70,14 @@ export const billingRouter = router({
           message: "Stripe is not configured. Use coupon codes or contact support.",
         });
       }
-      if (!PAID_PLAN_IDS.includes(input.planId)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid plan." });
+      if (!SELF_SERVE_CHECKOUT_PLAN_IDS.includes(input.planId)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            input.planId === "agency"
+              ? "Agency plans are contact-only. Join the waitlist or email support to upgrade."
+              : "Invalid plan.",
+        });
       }
 
       const stripe = getStripeClient();
@@ -99,6 +113,10 @@ export const billingRouter = router({
         });
       }
 
+      log.info("checkout_session_created", {
+        userId: ctx.user.id,
+        planId: input.planId,
+      });
       return { url: session.url };
     }),
 
@@ -158,8 +176,14 @@ export const billingRouter = router({
         });
       }
 
-      if (!PAID_PLAN_IDS.includes(input.planId)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid plan." });
+      if (!SELF_SERVE_CHECKOUT_PLAN_IDS.includes(input.planId)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            input.planId === "agency"
+              ? "Agency plans are contact-only. Join the waitlist or email support to upgrade."
+              : "Invalid plan.",
+        });
       }
 
       await assignPaidPlan(ctx.user.id, input.planId as PlanId);

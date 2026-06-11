@@ -8,6 +8,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { DataCoverageBanner } from "@/components/intelligence/DataCoverageBanner";
 import type { RegionCode } from "@shared/searchTypes";
 import { Video } from "lucide-react";
 
@@ -45,6 +46,8 @@ export default function TikTokRadarPage() {
           </span>
         }
       />
+
+      <DataCoverageBanner pageId="tiktok-radar" />
 
       {!tiktokConfigured ? (
         <Alert>

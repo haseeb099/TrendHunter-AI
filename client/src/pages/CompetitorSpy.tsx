@@ -13,6 +13,7 @@ import { InsightCard } from "@/components/workspace/InsightCard";
 import { FieldLabel } from "@/components/workspace/FieldLabel";
 import { TrendPulsePanel } from "@/components/intelligence/TrendPulsePanel";
 import { AdRadarPanel } from "@/components/intelligence/AdRadarPanel";
+import { DataFreshnessBadge } from "@/components/intelligence/DataFreshnessBadge";
 import {
   Users,
   TrendingDown,
@@ -191,6 +192,9 @@ export default function CompetitorSpy() {
           <TabsContent value="intel" className="mt-6 space-y-4">
             {analysis ? (
               <>
+                <div className="flex justify-end">
+                  <DataFreshnessBadge synthetic />
+                </div>
                 {analysis.position ? (
                   <InsightCard title="Market position" icon={Target}>
                     <p className="text-sm text-muted-foreground leading-relaxed">{analysis.position}</p>

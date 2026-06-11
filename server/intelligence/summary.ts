@@ -1,4 +1,5 @@
 import type { ProductIntelligenceSummary, RegionCode } from "@shared/searchTypes";
+import type { AdLibrarySnapshot, IntelCoverageLevel, TrendSignal } from "@shared/intelligenceTypes";
 import { getTrendSignal } from "./trends";
 import { getAdLibrarySnapshot } from "./adLibrary";
 
@@ -26,6 +27,7 @@ export async function getProductIntelligence(
     activeAdCount: ads?.activeAdCount ?? null,
     advertiserCount: ads?.advertiserCount ?? null,
     fetchedAt,
+    stale: Boolean(trend?.stale || ads?.stale),
   };
 }
 
@@ -61,4 +63,31 @@ export function buildIntelligenceContext(
   }
 
   return parts.join("\n");
+}
+
+export function intelCoverageLevel(
+  trend: TrendSignal | null,
+  ads: AdLibrarySnapshot | null
+): IntelCoverageLevel {
+  const hasTrend = Boolean(trend);
+  const hasAds = Boolean(ads);
+  if (hasTrend && hasAds) return "high";
+  if (hasTrend || hasAds) return "medium";
+  return "low";
+}
+
+export function gapItemConfidence(
+  demandLevel: string,
+  competitionLevel: string,
+  coverage: IntelCoverageLevel
+): IntelCoverageLevel {
+  const demand = demandLevel.toLowerCase();
+  const competition = competitionLevel.toLowerCase();
+  let base: IntelCoverageLevel = "medium";
+  if (demand.includes("high") && competition.includes("low")) base = "high";
+  else if (demand.includes("low") || competition.includes("high")) base = "low";
+
+  if (coverage === "low") return base === "high" ? "medium" : "low";
+  if (coverage === "medium" && base === "high") return "medium";
+  return base;
 }

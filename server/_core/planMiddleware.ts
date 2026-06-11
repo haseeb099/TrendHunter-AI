@@ -7,7 +7,9 @@ import {
   assertFeatureAccess,
   assertPipelineQuota,
   assertSearchQuota,
+  assertSubscriptionActive,
   assertWatchlistQuota,
+  lazyExpireTrialIfNeeded,
 } from "../plans";
 import { authenticatedProcedure, getCtxUser, t } from "./trpc";
 import { UNAUTHED_ERR_MSG } from "@shared/const";
@@ -20,6 +22,16 @@ const requireActiveAccount = t.middleware(async ({ ctx, next }) => {
   }
   assertAccountUsable(user);
   return next({ ctx });
+});
+
+const requireActiveSubscription = t.middleware(async ({ ctx, next }) => {
+  const user = ctx.user;
+  if (!user) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+  }
+  await lazyExpireTrialIfNeeded(user);
+  assertSubscriptionActive(user);
+  return next({ ctx: { ...ctx, user } });
 });
 
 const enforceMaintenance = t.middleware(async ({ ctx, next }) => {
@@ -40,6 +52,7 @@ const enforceMaintenance = t.middleware(async ({ ctx, next }) => {
 
 export const protectedBase = authenticatedProcedure
   .use(requireActiveAccount)
+  .use(requireActiveSubscription)
   .use(enforceMaintenance);
 
 export function featureProcedure(feature: FeatureId) {

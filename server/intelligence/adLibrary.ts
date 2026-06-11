@@ -112,7 +112,10 @@ export async function saveAdLibrarySnapshot(snapshot: AdLibrarySnapshot) {
   });
 }
 
-function rowToSnapshot(row: typeof adLibrarySnapshots.$inferSelect): AdLibrarySnapshot {
+function rowToSnapshot(
+  row: typeof adLibrarySnapshots.$inferSelect,
+  stale = false
+): AdLibrarySnapshot {
   return {
     keyword: row.keyword,
     region: row.region,
@@ -122,6 +125,7 @@ function rowToSnapshot(row: typeof adLibrarySnapshots.$inferSelect): AdLibrarySn
     gaps: (row.gaps as string[]) ?? [],
     fetchedAt: row.fetchedAt.toISOString(),
     isLive: false,
+    stale: stale || undefined,
   };
 }
 
@@ -168,7 +172,7 @@ export async function getAdLibrarySnapshot(
       .where(and(eq(adLibrarySnapshots.keyword, kw), eq(adLibrarySnapshots.region, region)))
       .orderBy(desc(adLibrarySnapshots.fetchedAt))
       .limit(1);
-    if (stale[0]) return rowToSnapshot(stale[0]);
+    if (stale[0]) return rowToSnapshot(stale[0], true);
   }
 
   return null;

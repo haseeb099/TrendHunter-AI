@@ -94,6 +94,7 @@ export function AdRadarPanel({ keyword, region = "US", compact = false }: AdRada
         <DataFreshnessBadge
           dataMode={snapshot.isLive ? "live" : "cached"}
           cachedAt={snapshot.fetchedAt}
+          stale={snapshot.stale}
           creditsUsed={query.data?.creditsUsed}
         />
       </div>

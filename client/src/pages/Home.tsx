@@ -35,8 +35,8 @@ import { DataFreshnessBadge } from "@/components/intelligence/DataFreshnessBadge
 const features = [
   {
     icon: Search,
-    title: "Unified marketplace search",
-    desc: "One query across eBay, Amazon, retail, and TikTok Shop with shared filters.",
+    title: "Cache-first marketplace discovery",
+    desc: "Browse trending and cached catalog results across eBay, Amazon, retail, and TikTok — go live when you're ready.",
   },
   {
     icon: LineChart,
@@ -66,7 +66,7 @@ const features = [
   {
     icon: MessageSquare,
     title: "Research agent",
-    desc: "Ask follow-ups and get structured recommendations in context.",
+    desc: "General AI guidance for strategy — not connected to live feeds; verify in Discover and Intel.",
   },
 ];
 
@@ -191,10 +191,10 @@ function TrendingSection({ isAuthenticated }: { isAuthenticated: boolean }) {
       <div className="container">
         <div className="max-w-2xl mb-8">
           <p className="eyebrow mb-3">Trending now</p>
-          <h2 className="section-title mb-3">What&apos;s hot across marketplaces</h2>
+          <h2 className="section-title mb-3">Trending from daily cache</h2>
           <p className="text-muted-foreground">
-            Region-aware trending products — sign in to save and add to your pipeline. Use the trend
-            icon on any card for a free public SEO trend report.
+            Region-aware trending from our daily cache — sign in to save and pipeline products.
+            Live marketplace search uses credits inside the workspace.
           </p>
         </div>
 
@@ -212,13 +212,10 @@ function TrendingSection({ isAuthenticated }: { isAuthenticated: boolean }) {
           <div className="ml-auto flex items-center gap-2 flex-wrap">
             {trendingQuery.data && !trendingQuery.isLoading ? (
               <DataFreshnessBadge
-                dataMode={trendingQuery.data.dataMode ?? (trendingQuery.data.isDemo ? "demo" : "cached")}
+                dataMode={trendingQuery.data.dataMode ?? "cached"}
                 cachedAt={trendingQuery.data.cachedAt}
                 stale={trendingQuery.data.stale}
               />
-            ) : null}
-            {trendingQuery.data?.isDemo ? (
-              <Badge variant="outline">Demo data</Badge>
             ) : null}
           </div>
         </div>
@@ -343,8 +340,8 @@ export default function Home() {
                 Hunt winning products with clarity, not chaos
               </h1>
               <p className="text-lg text-muted-foreground leading-relaxed mb-8">
-                DropHunter brings marketplace search, AI validation, pipeline tracking,
-                and analytics into one calm, professional workspace.
+                DropHunter brings cached marketplace discovery, AI validation, pipeline tracking,
+                and analytics into one calm workspace — with optional live refresh when you need it.
               </p>
               <div className="flex flex-col sm:flex-row gap-3">
                 <Link href={isAuthenticated ? "/dashboard" : getRegisterUrl()}>
@@ -361,9 +358,9 @@ export default function Home() {
               </div>
               <div className="mt-10 flex flex-wrap gap-6 text-sm">
                 {[
-                  { value: "4+", label: "Marketplaces" },
+                  { value: "4+", label: "Connected sources" },
                   { value: "11", label: "Research tools" },
-                  { value: "1", label: "Workspace" },
+                  { value: "Free", label: "Cached reads" },
                 ].map((s) => (
                   <div key={s.label}>
                     <p className="stat-value text-xl">{s.value}</p>
@@ -489,6 +486,14 @@ export default function Home() {
       <footer className="border-t border-border py-10">
         <div className="container flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
           <AppLogo size="sm" />
+          <nav className="flex flex-wrap items-center justify-center gap-4">
+            <Link href="/terms" className="hover:text-foreground transition-colors">
+              Terms
+            </Link>
+            <Link href="/privacy" className="hover:text-foreground transition-colors">
+              Privacy
+            </Link>
+          </nav>
           <p>© 2026 DropHunter. Product research for modern sellers.</p>
         </div>
       </footer>

@@ -34,6 +34,7 @@ export default function Billing() {
     subscription,
     displayName,
     isTrial,
+    isActive,
     daysLeftInTrial,
     canStartTrial,
     selfServeBilling,
@@ -246,6 +247,16 @@ export default function Billing() {
             </div>
           ) : null}
 
+          {!isActive ? (
+            <div className="rounded-xl border border-warning/30 bg-warning/10 px-5 py-4 text-sm space-y-1">
+              <p className="font-medium text-warning">Subscription inactive</p>
+              <p className="text-muted-foreground">
+                Workspace tools are locked until you renew or apply a coupon. Billing and account settings
+                remain available.
+              </p>
+            </div>
+          ) : null}
+
           <div className="card-elevated p-5 flex flex-col sm:flex-row gap-3 sm:items-end">
             <div className="flex-1 space-y-1.5">
               <label htmlFor="coupon-code" className="text-sm font-medium flex items-center gap-2">
@@ -269,12 +280,14 @@ export default function Billing() {
             </Button>
           </div>
 
-          {stripeConfigured && subscription?.isActive ? (
+          {stripeConfigured && (subscription?.isActive || subscription?.hasStripeCustomer) ? (
             <div className="card-elevated p-5 flex flex-wrap items-center justify-between gap-4">
               <div>
                 <p className="font-medium text-sm">Manage subscription</p>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                  Update payment method, view invoices, or cancel via Stripe.
+                  {subscription?.isActive
+                    ? "Update payment method, view invoices, or cancel via Stripe."
+                    : "Reactivate or update billing details via Stripe."}
                 </p>
               </div>
               <Button
@@ -394,7 +407,8 @@ export default function Billing() {
           </div>
           {!subscription?.isActive ? (
             <div className="rounded-xl border border-warning/30 bg-warning/10 px-5 py-4 text-sm text-warning">
-              Your subscription is inactive. Upgrade or apply a coupon to restore full access.
+              Your subscription is inactive. Upgrade, reactivate via the billing portal, or apply a coupon
+              to restore workspace access.
             </div>
           ) : null}
         </div>
@@ -450,6 +464,12 @@ export default function Billing() {
                     onClick={() => startTrial.mutate()}
                   >
                     {canStartTrial ? "Start trial" : "Trial used"}
+                  </Button>
+                ) : plan.id === "agency" ? (
+                  <Button variant="outline" className="w-full" asChild>
+                    <a href="mailto:support@drophunter.ai?subject=Agency%20plan%20inquiry">
+                      Contact us
+                    </a>
                   </Button>
                 ) : (
                   <Button

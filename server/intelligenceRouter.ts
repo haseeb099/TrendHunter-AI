@@ -1,10 +1,14 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { router, protectedProcedure, publicProcedure } from "./_core/trpc";
+import { router, publicProcedure } from "./_core/trpc";
+import { featureProcedure, protectedBase } from "./_core/planMiddleware";
+
+const intelProcedure = featureProcedure("discover");
 import { getCtxUser } from "./_core/trpc";
 import { assertRateLimit, getClientIp } from "./_core/rateLimit";
 import { spendCredits } from "./credits";
 import { getTrendSignal } from "./intelligence/trends";
+import { isSerpConfigured } from "./search/serpapi";
 import { getAdLibrarySnapshot, isMetaAdLibraryConfigured } from "./intelligence/adLibrary";
 import {
   getTikTokAdsSnapshot,
@@ -42,7 +46,7 @@ function requireKeyword(raw: string): string {
 }
 
 export const intelligenceRouter = router({
-  getTrendPulse: protectedProcedure
+  getTrendPulse: featureProcedure("discover")
     .input(
       z.object({
         keyword: z.string().min(1),
@@ -62,7 +66,7 @@ export const intelligenceRouter = router({
       return { signal, creditsUsed, region };
     }),
 
-  getAdRadar: protectedProcedure
+  getAdRadar: featureProcedure("discover")
     .input(
       z.object({
         keyword: z.string().min(1),
@@ -86,7 +90,7 @@ export const intelligenceRouter = router({
       };
     }),
 
-  getTikTokRadar: protectedProcedure
+  getTikTokRadar: featureProcedure("discover")
     .input(
       z.object({
         keyword: z.string().min(1),
@@ -111,11 +115,11 @@ export const intelligenceRouter = router({
       };
     }),
 
-  listTikTokKeywords: protectedProcedure
+  listTikTokKeywords: intelProcedure
     .input(z.object({ region: regionSchema.optional() }))
     .query(({ input }) => listTikTokAdKeywords(input.region ?? ENV.defaultRegion)),
 
-  getProductIntel: protectedProcedure
+  getProductIntel: intelProcedure
     .input(
       z.object({
         keyword: z.string().min(1),
@@ -128,7 +132,7 @@ export const intelligenceRouter = router({
       return getProductIntelligence(keyword, region);
     }),
 
-  getIntelligenceContext: protectedProcedure
+  getIntelligenceContext: intelProcedure
     .input(
       z.object({
         keyword: z.string().min(1),
@@ -150,7 +154,7 @@ export const intelligenceRouter = router({
     }),
 
   /** Cached keyword lists for Intel Center & sidebar pages */
-  getMarketDigest: protectedProcedure
+  getMarketDigest: intelProcedure
     .input(
       z.object({
         region: regionSchema.optional(),
@@ -165,13 +169,13 @@ export const intelligenceRouter = router({
         region,
         ...digest,
         metaConfigured: isMetaAdLibraryConfigured(),
-        serpConfigured: Boolean(ENV.serpApiKey),
+        serpConfigured: isSerpConfigured(),
         lastIngestAt: ingest?.completedAt?.toISOString() ?? ingest?.startedAt.toISOString() ?? null,
         cacheTtlHours: ENV.trendingCacheTtlHours,
       };
     }),
 
-  listTrendKeywords: protectedProcedure
+  listTrendKeywords: intelProcedure
     .input(
       z.object({
         region: regionSchema.optional(),
@@ -184,7 +188,7 @@ export const intelligenceRouter = router({
       return listTrendingKeywords(region, input.limit ?? 24, input.category);
     }),
 
-  listAdKeywords: protectedProcedure
+  listAdKeywords: intelProcedure
     .input(
       z.object({
         region: regionSchema.optional(),
@@ -197,7 +201,7 @@ export const intelligenceRouter = router({
       return listAdRadarKeywords(region, input.limit ?? 24, input.category);
     }),
 
-  getKeywordWatches: protectedProcedure.query(async ({ ctx }) => {
+  getKeywordWatches: protectedBase.query(async ({ ctx }) => {
     const userId = getCtxUser(ctx).id;
     const rows = await getKeywordWatches(userId);
     const plan = resolveEffectivePlan(getCtxUser(ctx)).effectivePlanId;
@@ -215,7 +219,7 @@ export const intelligenceRouter = router({
     };
   }),
 
-  addKeywordWatch: protectedProcedure
+  addKeywordWatch: protectedBase
     .input(
       z.object({
         keyword: z.string().min(1),
@@ -245,14 +249,14 @@ export const intelligenceRouter = router({
       return { id };
     }),
 
-  removeKeywordWatch: protectedProcedure
+  removeKeywordWatch: protectedBase
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
       await removeKeywordWatch(input.id, getCtxUser(ctx).id);
       return { ok: true };
     }),
 
-  getDigestPrefs: protectedProcedure.query(async ({ ctx }) => {
+  getDigestPrefs: protectedBase.query(async ({ ctx }) => {
     const prefs = await getDigestPrefs(getCtxUser(ctx).id);
     return {
       enabled: prefs?.enabled ?? false,
@@ -263,7 +267,7 @@ export const intelligenceRouter = router({
     };
   }),
 
-  updateDigestPrefs: protectedProcedure
+  updateDigestPrefs: protectedBase
     .input(
       z.object({
         enabled: z.boolean(),
@@ -287,7 +291,7 @@ export const intelligenceRouter = router({
       return { ok: true };
     }),
 
-  getRecentAlerts: protectedProcedure.query(async ({ ctx }) => {
+  getRecentAlerts: protectedBase.query(async ({ ctx }) => {
     const rows = await getRecentIntelAlerts(getCtxUser(ctx).id, 15);
     return rows.map((r) => ({
       id: r.id,
@@ -296,7 +300,7 @@ export const intelligenceRouter = router({
     }));
   }),
 
-  getIngestStatus: protectedProcedure.query(async () => {
+  getIngestStatus: protectedBase.query(async () => {
     const run = await getLatestIngestRun();
     return {
       lastRun: run

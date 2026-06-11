@@ -1,44 +1,57 @@
 import { Badge } from "@/components/ui/badge";
-import { Clock, Zap, Database } from "lucide-react";
+import { Clock, Zap, Database, AlertTriangle, Sparkles, Ban } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import {
+  resolveDataState,
+  type DataMode,
+  type DataState,
+} from "@shared/searchTypes";
 
 type DataFreshnessBadgeProps = {
-  dataMode?: "cached" | "live" | "demo";
+  state?: DataState;
+  dataMode?: DataMode;
   cachedAt?: string | null;
   stale?: boolean;
+  synthetic?: boolean;
+  unavailable?: boolean;
   creditsUsed?: number;
+  className?: string;
+};
+
+const STATE_META: Record<
+  DataState,
+  { label: string; variant: "default" | "secondary" | "outline" | "destructive"; Icon: typeof Zap }
+> = {
+  live: { label: "Live", variant: "default", Icon: Zap },
+  cached: { label: "Cached", variant: "secondary", Icon: Database },
+  stale: { label: "Stale cache", variant: "outline", Icon: AlertTriangle },
+  synthetic: { label: "AI-generated", variant: "outline", Icon: Sparkles },
+  unavailable: { label: "Unavailable", variant: "destructive", Icon: Ban },
 };
 
 export function DataFreshnessBadge({
+  state: stateProp,
   dataMode = "cached",
   cachedAt,
   stale,
+  synthetic,
+  unavailable,
   creditsUsed,
+  className,
 }: DataFreshnessBadgeProps) {
-  if (dataMode === "demo") {
-    return (
-      <Badge variant="outline" className="text-[10px] gap-1">
-        Demo data
-      </Badge>
-    );
-  }
+  const state =
+    stateProp ??
+    resolveDataState({ dataMode, stale, synthetic, unavailable });
 
-  const label =
-    dataMode === "live"
-      ? "Live"
-      : stale
-        ? "Stale cache"
-        : "Cached";
-
-  const Icon = dataMode === "live" ? Zap : Database;
+  const { label, variant, Icon } = STATE_META[state];
   const timeAgo =
     cachedAt && !Number.isNaN(Date.parse(cachedAt))
       ? formatDistanceToNow(new Date(cachedAt), { addSuffix: true })
       : null;
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <Badge variant={dataMode === "live" ? "default" : "secondary"} className="text-[10px] gap-1">
+    <div className={`flex flex-wrap items-center gap-1.5 ${className ?? ""}`}>
+      <Badge variant={variant} className="text-[10px] gap-1">
         <Icon className="w-3 h-3" />
         {label}
       </Badge>

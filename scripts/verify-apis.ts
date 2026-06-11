@@ -2,12 +2,15 @@ import "dotenv/config";
 import { ENV, isAiConfigured, isCjConfigured } from "../server/_core/env";
 import { invokeLLMOrThrow } from "../server/_core/aiHelpers";
 import { searchCjOffers } from "../server/suppliers/cj";
-import { isSerpApiConfigured } from "../server/search/serpapi";
+import { isSerpApiConfigured, isSerpConfigured } from "../server/search/serpapi";
+import { isJustSerpConfigured } from "../server/search/justserp";
 import { isTikTokConfigured } from "../server/search/tiktok";
 
 async function main() {
   console.log("=== API configuration summary ===\n");
   console.log(`SerpAPI:     ${isSerpApiConfigured() ? "✓ configured" : "○ missing"}`);
+  console.log(`Just Serp:   ${isJustSerpConfigured() ? "✓ configured" : "○ missing"}`);
+  console.log(`SERP (any):  ${isSerpConfigured() ? "✓ shopping/trends" : "○ missing"}`);
   console.log(`TikTok:      ${isTikTokConfigured() ? "✓ configured" : "○ missing"} (${ENV.tiktokShopProvider})`);
   console.log(`AI (Groq):   ${isAiConfigured() ? "✓ configured" : "○ missing"} → ${ENV.openaiApiBase}`);
   console.log(`CJ:          ${isCjConfigured() ? "✓ configured" : "○ missing"}`);

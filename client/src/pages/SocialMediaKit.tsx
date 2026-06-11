@@ -20,6 +20,7 @@ import { FormSection } from "@/components/workspace/FormSection";
 import { FieldLabel } from "@/components/workspace/FieldLabel";
 import { SocialKitUsageBar } from "@/components/social/SocialKitUsageBar";
 import { ProductIntelligenceHub } from "@/components/intelligence/ProductIntelligenceHub";
+import { DataFreshnessBadge } from "@/components/intelligence/DataFreshnessBadge";
 import {
   Sparkles,
   Copy,
@@ -497,13 +498,20 @@ export default function SocialMediaKit() {
           ) : null}
 
           {hasOutput ? (
-            <KitOutputTabs
-              kit={kit}
-              activeTab={activeTab}
-              setActiveTab={setActiveTab}
-              copiedId={copiedId}
-              onCopy={copyToClipboard}
-            />
+            <div className="space-y-3">
+              {!liveData ? (
+                <div className="flex justify-end">
+                  <DataFreshnessBadge synthetic />
+                </div>
+              ) : null}
+              <KitOutputTabs
+                kit={kit}
+                activeTab={activeTab}
+                setActiveTab={setActiveTab}
+                copiedId={copiedId}
+                onCopy={copyToClipboard}
+              />
+            </div>
           ) : (
             <div className="product-panel-empty">
               <Sparkles className="w-8 h-8 text-primary/40 mx-auto mb-2" />

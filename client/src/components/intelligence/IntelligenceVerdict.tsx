@@ -1,9 +1,11 @@
 import { Badge } from "@/components/ui/badge";
 import type { ProductIntelligenceSummary } from "@shared/searchTypes";
 import { CheckCircle2, AlertTriangle, HelpCircle } from "lucide-react";
+import { DataFreshnessBadge } from "./DataFreshnessBadge";
 
 type IntelligenceVerdictProps = {
   summary: ProductIntelligenceSummary | null | undefined;
+  stale?: boolean;
 };
 
 type Verdict = {
@@ -73,13 +75,14 @@ function computeVerdict(summary: ProductIntelligenceSummary | null | undefined):
   };
 }
 
-export function IntelligenceVerdict({ summary }: IntelligenceVerdictProps) {
+export function IntelligenceVerdict({ summary, stale }: IntelligenceVerdictProps) {
   const verdict = computeVerdict(summary);
   const Icon = verdict.icon;
+  const hasData = Boolean(summary?.fetchedAt);
 
   return (
     <div
-      className={`rounded-xl border p-4 space-y-2 ${
+      className={`rounded-xl border p-4 space-y-3 ${
         verdict.tone === "success"
           ? "border-success/30 bg-success/5"
           : verdict.tone === "warning"
@@ -87,24 +90,40 @@ export function IntelligenceVerdict({ summary }: IntelligenceVerdictProps) {
             : "border-border bg-muted/20"
       }`}
     >
-      <div className="flex items-center gap-2">
-        <Icon
-          className={`w-4 h-4 ${
-            verdict.tone === "success"
-              ? "text-success"
-              : verdict.tone === "warning"
-                ? "text-warning"
-                : "text-muted-foreground"
-          }`}
-        />
-        <Badge
-          variant={verdict.tone === "success" ? "default" : "secondary"}
-          className="text-[11px]"
-        >
-          {verdict.label}
-        </Badge>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Icon
+            className={`w-4 h-4 ${
+              verdict.tone === "success"
+                ? "text-success"
+                : verdict.tone === "warning"
+                  ? "text-warning"
+                  : "text-muted-foreground"
+            }`}
+          />
+          <Badge
+            variant={verdict.tone === "success" ? "default" : "secondary"}
+            className="text-[11px]"
+          >
+            {verdict.label}
+          </Badge>
+        </div>
+        {hasData ? (
+          <DataFreshnessBadge
+            dataMode="cached"
+            cachedAt={summary?.fetchedAt}
+            stale={stale}
+          />
+        ) : (
+          <DataFreshnessBadge unavailable />
+        )}
       </div>
       <p className="text-sm text-muted-foreground leading-relaxed">{verdict.summary}</p>
+      {!hasData ? (
+        <p className="text-[11px] text-muted-foreground">
+          Verdict uses cached Google Trends and Meta Ad Library snapshots — not live marketplace prices.
+        </p>
+      ) : null}
     </div>
   );
 }

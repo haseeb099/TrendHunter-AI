@@ -37,6 +37,35 @@ export function getRedis(): Redis | null {
   return client;
 }
 
+export async function pingRedis(): Promise<{
+  configured: boolean;
+  ok: boolean;
+  latencyMs?: number;
+  error?: string;
+}> {
+  if (!isRedisConfigured()) {
+    return { configured: false, ok: true };
+  }
+
+  const redis = getRedis();
+  if (!redis) {
+    return { configured: true, ok: false, error: "init_failed" };
+  }
+
+  const start = Date.now();
+  try {
+    await redis.ping();
+    return { configured: true, ok: true, latencyMs: Date.now() - start };
+  } catch (err) {
+    return {
+      configured: true,
+      ok: false,
+      latencyMs: Date.now() - start,
+      error: err instanceof Error ? err.message : "ping_failed",
+    };
+  }
+}
+
 export async function closeRedis(): Promise<void> {
   if (client) {
     await client.quit().catch(() => undefined);

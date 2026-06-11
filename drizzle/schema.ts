@@ -38,6 +38,8 @@ export const users = mysqlTable("users", {
   adminNotes: text("adminNotes"),
   limitOverrides: json("limitOverrides"),
   pausedUntil: timestamp("pausedUntil"),
+  termsAcceptedAt: timestamp("termsAcceptedAt"),
+  privacyAcceptedAt: timestamp("privacyAcceptedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -508,3 +510,128 @@ export const intelDigestPrefs = mysqlTable("intel_digest_prefs", {
 });
 
 export type IntelDigestPrefs = typeof intelDigestPrefs.$inferSelect;
+
+export const passwordResetTokens = mysqlTable("password_reset_tokens", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  tokenHash: varchar("tokenHash", { length: 64 }).notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  usedAt: timestamp("usedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
+export type InsertPasswordResetToken = typeof passwordResetTokens.$inferInsert;
+
+// Canonical product graph (S16)
+export const canonicalProducts = mysqlTable("canonical_products", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  normalizedTitle: varchar("normalizedTitle", { length: 512 }).notNull(),
+  category: varchar("category", { length: 64 }),
+  priceBand: mysqlEnum("priceBand", ["budget", "mid", "premium"]).default("mid").notNull(),
+  primaryImageUrl: text("primaryImageUrl"),
+  listingCount: int("listingCount").default(1).notNull(),
+  firstSeenAt: timestamp("firstSeenAt").defaultNow().notNull(),
+  lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
+});
+
+export type CanonicalProduct = typeof canonicalProducts.$inferSelect;
+
+export const productListings = mysqlTable("product_listings", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  canonicalProductId: varchar("canonicalProductId", { length: 36 }).notNull(),
+  platform: varchar("platform", { length: 64 }).notNull(),
+  externalId: varchar("externalId", { length: 255 }).notNull(),
+  title: text("title").notNull(),
+  price: float("price").notNull(),
+  currency: varchar("currency", { length: 8 }).default("USD"),
+  region: varchar("region", { length: 16 }).notNull(),
+  sourceProvider: varchar("sourceProvider", { length: 64 }).notNull(),
+  sourceUrl: text("sourceUrl"),
+  fetchedAt: timestamp("fetchedAt").defaultNow().notNull(),
+  payload: json("payload"),
+});
+
+export type ProductListing = typeof productListings.$inferSelect;
+
+export const trendingSnapshotDiffs = mysqlTable("trending_snapshot_diffs", {
+  id: int("id").autoincrement().primaryKey(),
+  region: varchar("region", { length: 16 }).notNull(),
+  category: varchar("category", { length: 64 }),
+  previousSnapshotId: int("previousSnapshotId"),
+  currentSnapshotId: int("currentSnapshotId").notNull(),
+  addedCanonicalIds: json("addedCanonicalIds"),
+  removedCanonicalIds: json("removedCanonicalIds"),
+  scoreDeltas: json("scoreDeltas"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type TrendingSnapshotDiff = typeof trendingSnapshotDiffs.$inferSelect;
+
+// Autonomous discovery queue (S17)
+export const discoveryQueue = mysqlTable("discovery_queue", {
+  id: int("id").autoincrement().primaryKey(),
+  query: varchar("query", { length: 255 }).notNull(),
+  platform: varchar("platform", { length: 32 }).default("all").notNull(),
+  region: varchar("region", { length: 16 }).notNull(),
+  priority: float("priority").default(0.5).notNull(),
+  source: varchar("source", { length: 32 }).notNull(),
+  parentQuery: varchar("parentQuery", { length: 255 }),
+  status: mysqlEnum("status", ["pending", "running", "done", "failed", "skipped"])
+    .default("pending")
+    .notNull(),
+  scheduledAt: timestamp("scheduledAt").defaultNow().notNull(),
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type DiscoveryQueueItem = typeof discoveryQueue.$inferSelect;
+
+// Product feature store (S18)
+export const productFeatures = mysqlTable("product_features", {
+  id: int("id").autoincrement().primaryKey(),
+  canonicalProductId: varchar("canonicalProductId", { length: 36 }).notNull(),
+  region: varchar("region", { length: 16 }).notNull(),
+  keyword: varchar("keyword", { length: 255 }),
+  momentumScore: float("momentumScore"),
+  adSaturationScore: float("adSaturationScore"),
+  tiktokPressureScore: float("tiktokPressureScore"),
+  supplierScore: float("supplierScore"),
+  competitionScore: float("competitionScore"),
+  freshnessScore: float("freshnessScore"),
+  computedAt: timestamp("computedAt").defaultNow().notNull(),
+});
+
+export type ProductFeatureRow = typeof productFeatures.$inferSelect;
+
+// Ingest retry queue (S19)
+export const ingestRetries = mysqlTable("ingest_retries", {
+  id: int("id").autoincrement().primaryKey(),
+  provider: varchar("provider", { length: 64 }).notNull(),
+  query: varchar("query", { length: 255 }),
+  platform: varchar("platform", { length: 32 }),
+  region: varchar("region", { length: 16 }),
+  payload: json("payload"),
+  attempts: int("attempts").default(0).notNull(),
+  maxAttempts: int("maxAttempts").default(5).notNull(),
+  nextRetryAt: timestamp("nextRetryAt").defaultNow().notNull(),
+  lastError: text("lastError"),
+  status: mysqlEnum("status", ["pending", "running", "done", "failed"])
+    .default("pending")
+    .notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type IngestRetry = typeof ingestRetries.$inferSelect;
+
+// Ranking weight configs (S24)
+export const rankingConfigs = mysqlTable("ranking_configs", {
+  id: int("id").autoincrement().primaryKey(),
+  version: varchar("version", { length: 16 }).default("v2").notNull(),
+  region: varchar("region", { length: 16 }),
+  weights: json("weights").notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type RankingConfig = typeof rankingConfigs.$inferSelect;

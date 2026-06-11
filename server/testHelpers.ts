@@ -25,6 +25,8 @@ export function createTestUser(overrides: Partial<User> = {}): User {
     adminNotes: null,
     limitOverrides: null,
     pausedUntil: null,
+    termsAcceptedAt: null,
+    privacyAcceptedAt: null,
     createdAt: now,
     updatedAt: now,
     lastSignedIn: now,

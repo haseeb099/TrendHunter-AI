@@ -6,19 +6,36 @@ import type {
 } from "@shared/searchTypes";
 import { ENV } from "../_core/env";
 import { isEbayConfigured } from "./ebay";
-import { isSerpApiConfigured } from "./serpapi";
+import { isSerpApiConfigured, isSerpConfigured } from "./serpapi";
+import { isJustSerpConfigured } from "./justserp";
 import { isTikTokConfigured } from "./tiktok";
 import { isFreeRetailEnabled } from "./freeRetail";
 import { isShopteraEnabled } from "./shoptera";
-import { searchMock } from "./mock";
 import { applyProductHuntFilters } from "./filters";
 import { dedupeResults, type SearchPlatform } from "./utils";
 import { searchCatalog } from "../dataPlatform/catalog";
 import { getSearchSnapshot, saveSearchSnapshot } from "../dataPlatform/snapshots";
 import { searchProductsLive } from "./liveSearch";
+import { createLogger } from "../_core/logger";
+import { scoreProducts } from "../ranking/scoreProduct";
+import { attachRankReasons } from "../trending/rankReason";
+import { searchCanonicalByKeyword } from "../dataPlatform/productGraph";
+import { getAdjacentQuerySuggestions } from "../discovery/queryExpansion";
+import { getProviderState } from "../_core/providerHealth";
 
-export function getSearchProviderStatus(): SearchProviderStatus[] {
-  return [
+const log = createLogger("search");
+
+async function withScoring(
+  results: ProductSearchResponse["results"],
+  region: RegionCode,
+  query: string
+) {
+  const scored = await scoreProducts(results, region, { query });
+  return attachRankReasons(scored);
+}
+
+export async function getSearchProviderStatus(): Promise<SearchProviderStatus[]> {
+  const providers: SearchProviderStatus[] = [
     {
       id: "free_retail",
       label: "Free retail catalogs",
@@ -57,25 +74,38 @@ export function getSearchProviderStatus(): SearchProviderStatus[] {
       configured: isSerpApiConfigured(),
       platforms: ["amazon", "all"],
       tier: "paid",
-      note: "Limited free tier on serpapi.com",
+      note: "SerpAPI only — Just Serp has no Amazon engine",
     },
     {
       id: "google_shopping",
-      label: "SerpAPI Google Shopping",
-      configured: isSerpApiConfigured(),
+      label: "Google Shopping (SERP)",
+      configured: isSerpConfigured(),
       platforms: ["shopify", "all"],
       tier: "paid",
-      note: "Same SerpAPI key as Amazon",
-    },
-    {
-      id: "mock",
-      label: "Demo data (fallback)",
-      configured: true,
-      platforms: ["all"],
-      tier: "demo",
-      note: "Used when no providers return results",
+      note:
+        isSerpApiConfigured() && isJustSerpConfigured()
+          ? "SerpAPI + Just Serp fallback"
+          : isJustSerpConfigured()
+            ? "Just Serp API (docs.justserpapi.com)"
+            : "SerpAPI key",
     },
   ];
+
+  return Promise.all(
+    providers.map(async (p) => {
+      const state = await getProviderState(p.id);
+      return {
+        ...p,
+        degraded: state === "degraded" || state === "open",
+        note:
+          state === "open"
+            ? `${p.note ?? ""} (circuit open — using cache)`.trim()
+            : state === "degraded"
+              ? `${p.note ?? ""} (degraded)`.trim()
+              : p.note,
+      };
+    })
+  );
 }
 
 export type SearchOptions = {
@@ -90,16 +120,68 @@ export async function searchProducts(
 ): Promise<ProductSearchResponse> {
   const trimmed = query.trim();
   if (!trimmed) {
-    return { results: [], sources: [], isDemo: true, dataMode: "demo" };
+    return { results: [], sources: [], isDemo: false };
   }
 
   const region = filters?.region ?? (ENV.defaultRegion as RegionCode);
+  log.info("search_products", { query: trimmed, platform, region, live: Boolean(options?.live) });
 
   if (options?.live) {
     const live = await searchProductsLive(trimmed, platform, filters);
-    if (!live.isDemo) {
-      await saveSearchSnapshot(trimmed, platform, region, live);
+    if (live.results.length > 0) {
+      const scored = await withScoring(live.results, region, trimmed);
+      const response = { ...live, results: scored };
+      await saveSearchSnapshot(trimmed, platform, region, response);
+      return { ...response, creditsUsed: 1 };
     }
+
+    // All live providers failed — fall back to valid then stale cache
+    const validSnapshot = await getSearchSnapshot(trimmed, platform, region, false);
+    if (validSnapshot && validSnapshot.response.results.length > 0) {
+      const filtered = applyProductHuntFilters(
+        dedupeResults(validSnapshot.response.results),
+        filters
+      ).slice(0, ENV.trendingMaxItems);
+      log.info("live_search_cache_fallback", { query: trimmed, stale: false });
+      const scored = await withScoring(filtered, region, trimmed);
+      return {
+        ...validSnapshot.response,
+        results: scored,
+        isDemo: false,
+        dataMode: "cached",
+        cachedAt: validSnapshot.cachedAt.toISOString(),
+        stale: false,
+        creditsUsed: 1,
+        warnings: [
+          ...(live.warnings ?? []),
+          "Live providers unavailable — showing cached results.",
+        ],
+      };
+    }
+
+    const staleSnapshot = await getSearchSnapshot(trimmed, platform, region, true);
+    if (staleSnapshot && staleSnapshot.response.results.length > 0) {
+      const filtered = applyProductHuntFilters(
+        dedupeResults(staleSnapshot.response.results),
+        filters
+      ).slice(0, ENV.trendingMaxItems);
+      log.info("live_search_stale_fallback", { query: trimmed, stale: true });
+      const scored = await withScoring(filtered, region, trimmed);
+      return {
+        ...staleSnapshot.response,
+        results: scored,
+        isDemo: false,
+        dataMode: "cached",
+        cachedAt: staleSnapshot.cachedAt.toISOString(),
+        stale: true,
+        creditsUsed: 1,
+        warnings: [
+          ...(live.warnings ?? []),
+          "Live providers unavailable — showing older cached results.",
+        ],
+      };
+    }
+
     return { ...live, creditsUsed: 1 };
   }
 
@@ -110,9 +192,11 @@ export async function searchProducts(
       dedupeResults(snapshot.response.results),
       filters
     ).slice(0, ENV.trendingMaxItems);
+    const scored = await withScoring(filtered, region, trimmed);
     return {
       ...snapshot.response,
-      results: filtered,
+      results: scored,
+      isDemo: false,
       dataMode: "cached",
       cachedAt: snapshot.cachedAt.toISOString(),
       stale: snapshot.stale,
@@ -126,8 +210,9 @@ export async function searchProducts(
       0,
       ENV.trendingMaxItems
     );
+    const scored = await withScoring(results, region, trimmed);
     return {
-      results,
+      results: scored,
       sources: ["free_retail"],
       isDemo: false,
       dataMode: "cached",
@@ -136,20 +221,34 @@ export async function searchProducts(
     };
   }
 
-  // Fallback demo data
-  const mockResults = applyProductHuntFilters(
-    searchMock(trimmed, platform, filters),
-    filters
-  ).slice(0, ENV.trendingMaxItems);
+  const canonical = await searchCanonicalByKeyword(trimmed, region, ENV.trendingMaxItems);
+  if (canonical.length > 0) {
+    const scored = await withScoring(
+      applyProductHuntFilters(canonical, filters).slice(0, ENV.trendingMaxItems),
+      region,
+      trimmed
+    );
+    return {
+      results: scored,
+      sources: ["free_retail"],
+      isDemo: false,
+      dataMode: "cached",
+      cachedAt: new Date().toISOString(),
+      warnings: ["Matched canonical product graph — run Live Search for fresh listings."],
+      creditsUsed: 0,
+    };
+  }
+
+  const suggestions = await getAdjacentQuerySuggestions(trimmed, region, 3);
 
   return {
-    results: mockResults,
-    sources: ["mock"],
-    isDemo: true,
-    dataMode: "demo",
+    results: [],
+    sources: [],
+    isDemo: false,
     warnings: [
-      "Showing demo data — daily ingest will populate the catalog, or use Live Search (credits).",
+      "No cached results yet. Run daily ingest to populate the catalog, or use Live Search.",
     ],
+    recoverySuggestions: suggestions,
     creditsUsed: 0,
   };
 }

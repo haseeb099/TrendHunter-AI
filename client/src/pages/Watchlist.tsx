@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { ProductDetailDrawer } from "@/components/ProductDetailDrawer";
-import type { ProductDrawerTab } from "@/components/product-workspace/types";
+import type { ProductDrawerTab, ProductValidationResult } from "@/components/product-workspace/types";
 import { BookmarkIcon, Trash2, ExternalLink, ShieldCheck, Plus, Eye } from "lucide-react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
@@ -13,6 +13,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 import type { ProductSearchResult, ProductOffer, RegionCode } from "@shared/searchTypes";
 import type { WatchlistItem } from "../../../drizzle/schema";
+import { useOnboarding } from "@/_core/hooks/useOnboarding";
 
 function watchlistItemToProduct(item: WatchlistItem): ProductSearchResult {
   return {
@@ -32,6 +33,7 @@ function watchlistItemToProduct(item: WatchlistItem): ProductSearchResult {
 export default function Watchlist() {
   const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
+  const { completeStep } = useOnboarding();
   const [detailProduct, setDetailProduct] = useState<ProductSearchResult | null>(null);
   const [drawerTab, setDrawerTab] = useState<ProductDrawerTab>("overview");
 
@@ -48,6 +50,7 @@ export default function Watchlist() {
   const addToPipeline = trpc.pipeline.createPipelineItem.useMutation({
     onSuccess: async () => {
       await utils.pipeline.getPipelineItems.invalidate();
+      completeStep("pipeline");
       toast.success("Added to pipeline");
     },
     onError: (err) => toast.error(err.message),
@@ -70,6 +73,34 @@ export default function Watchlist() {
       supplierPlatform: offer?.supplierPlatform ?? product.supplier ?? undefined,
       landedCost: offer?.landedCost,
       stage: "testing",
+    });
+  };
+
+  const handlePipelineWithValidation = ({
+    product,
+    validation,
+    offer,
+  }: {
+    product: ProductSearchResult;
+    validation: ProductValidationResult;
+    offer?: ProductOffer;
+  }) => {
+    const estimatedProfit =
+      offer && product.price > 0 ? product.price - offer.landedCost : undefined;
+    addToPipeline.mutate({
+      productId: product.id.startsWith("watchlist-") ? undefined : product.id,
+      productTitle: product.title,
+      productImage: product.image ?? undefined,
+      platform: product.platform,
+      price: product.price,
+      sourceUrl: product.sourceUrl ?? undefined,
+      region: product.region,
+      supplierPlatform: offer?.supplierPlatform ?? product.supplier ?? undefined,
+      landedCost: offer?.landedCost,
+      estimatedProfit,
+      validationScore: validation.overallScore,
+      stage: validation.overallScore >= 75 ? "scaling" : "testing",
+      notes: `AI validation: trend ${validation.trendScore}, saturation ${validation.saturationScore}${offer ? ` · ${offer.supplierPlatform} landed ${offer.landedCost.toFixed(2)}` : ""}`,
     });
   };
 
@@ -212,6 +243,7 @@ export default function Watchlist() {
         onOpenChange={(open) => !open && setDetailProduct(null)}
         initialTab={drawerTab}
         onAddToPipeline={handlePipeline}
+        onPipelineWithValidation={handlePipelineWithValidation}
         pipelinePending={addToPipeline.isPending}
       />
     </div>

@@ -5,6 +5,7 @@ import {
   ACCOUNT_PAUSED_ERR_MSG,
   PLAN_FORBIDDEN_ERR_MSG,
   PLAN_LIMIT_ERR_MSG,
+  SUBSCRIPTION_INACTIVE_ERR_MSG,
   UNAUTHED_ERR_MSG,
 } from "@shared/const";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -13,7 +14,10 @@ import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
 import { getLoginUrl } from "./const";
+import { initSentry } from "./lib/sentry";
 import "./index.css";
+
+initSentry();
 
 function injectAnalytics() {
   const endpoint = import.meta.env.VITE_ANALYTICS_ENDPOINT;
@@ -52,7 +56,8 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
   const accountRestricted =
     error.message === ACCOUNT_DEACTIVATED_ERR_MSG ||
     error.message === ACCOUNT_PAUSED_ERR_MSG ||
-    error.message === ACCOUNT_FLAGGED_ERR_MSG;
+    error.message === ACCOUNT_FLAGGED_ERR_MSG ||
+    error.message === SUBSCRIPTION_INACTIVE_ERR_MSG;
   if (accountRestricted && !window.location.pathname.includes("/dashboard/billing")) {
     window.location.href = "/dashboard/billing";
   }

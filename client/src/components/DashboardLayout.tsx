@@ -64,7 +64,7 @@ export default function DashboardLayout({
           <div className="space-y-2">
             <h1 className="font-display text-xl font-semibold">Could not load session</h1>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              Check your connection and try again.
+              {error.message || "Check your connection and try again."}
             </p>
           </div>
           <div className="flex flex-col gap-2">

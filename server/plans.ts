@@ -21,6 +21,7 @@ import {
   ACCOUNT_PAUSED_ERR_MSG,
   PLAN_FORBIDDEN_ERR_MSG,
   PLAN_LIMIT_ERR_MSG,
+  SUBSCRIPTION_INACTIVE_ERR_MSG,
 } from "@shared/const";
 import { TRPCError } from "@trpc/server";
 import {
@@ -68,6 +69,44 @@ async function getEffectiveLimits(user: User, effectivePlanId: PlanId) {
       base.liveCreditsPerMonth ??
       PLAN_LIVE_CREDITS[effectivePlanId],
   };
+}
+
+const trialExpiryInFlight = new Set<number>();
+
+/** Persist trial expiry when DB still shows active but trial end date has passed. */
+export async function lazyExpireTrialIfNeeded(user: User): Promise<void> {
+  if (isAdmin(user)) return;
+  if (user.planId !== "trial" || user.planStatus !== "active") return;
+  if (!user.trialEndsAt || new Date(user.trialEndsAt) > new Date()) return;
+  if (trialExpiryInFlight.has(user.id)) return;
+
+  trialExpiryInFlight.add(user.id);
+  try {
+    await updateUserSubscription(user.id, { planStatus: "expired" });
+    user.planStatus = "expired";
+  } catch (err) {
+    console.warn("[Plans] lazy trial expiry failed:", err);
+  } finally {
+    trialExpiryInFlight.delete(user.id);
+  }
+}
+
+function scheduleLazyExpireTrial(user: User): void {
+  if (trialExpiryInFlight.has(user.id)) return;
+  void lazyExpireTrialIfNeeded(user);
+}
+
+export function assertSubscriptionActive(user: User): void {
+  if (isAdmin(user)) return;
+
+  scheduleLazyExpireTrial(user);
+  const resolved = resolveEffectivePlan(user);
+  if (!resolved.isActive) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: SUBSCRIPTION_INACTIVE_ERR_MSG,
+    });
+  }
 }
 
 export function assertAccountUsable(user: User): void {
@@ -125,6 +164,7 @@ export function resolveEffectivePlan(user: User): {
   const now = new Date();
 
   if (planId === "trial") {
+    scheduleLazyExpireTrial(user);
     const trialEndsAt = user.trialEndsAt ? new Date(user.trialEndsAt) : null;
     const trialActive = trialEndsAt ? trialEndsAt > now : false;
     if (trialActive && planStatus === "active") {
@@ -180,6 +220,7 @@ export function resolveEffectivePlan(user: User): {
 }
 
 export async function buildSubscriptionInfo(user: User): Promise<SubscriptionInfo> {
+  await lazyExpireTrialIfNeeded(user);
   const catalog = await getPlanCatalog();
   const resolved = resolveEffectivePlan(user);
   const limits = await getEffectiveLimits(user, resolved.effectivePlanId);
@@ -210,7 +251,10 @@ export async function buildSubscriptionInfo(user: User): Promise<SubscriptionInf
     trialEndsAt: resolved.trialEndsAt,
     daysLeftInTrial,
     planExpiresAt: user.planExpiresAt ? new Date(user.planExpiresAt) : null,
-    features: getPlanFromCatalog(resolved.effectivePlanId, catalog).featureIds,
+    features:
+      resolved.isActive || isAdmin(user)
+        ? getPlanFromCatalog(resolved.effectivePlanId, catalog).featureIds
+        : [],
     limits,
     usage: {
       searchesThisMonth,
@@ -227,6 +271,7 @@ export async function buildSubscriptionInfo(user: User): Promise<SubscriptionInf
         : creditWallet.balance,
     },
     canStartTrial: !user.hasUsedTrial && !isAdmin(user),
+    hasStripeCustomer: Boolean(user.stripeCustomerId),
   };
 }
 

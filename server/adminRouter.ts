@@ -33,9 +33,15 @@ import {
 import type { AccountStatus, CouponType, LimitOverrides } from "@shared/adminTypes";
 import { ALL_FEATURE_IDS, type FeatureId, type PlanId } from "@shared/plans";
 import { toAdminUserSummary } from "./_core/userPublic";
-import { coupons } from "../drizzle/schema";
+import { coupons, rankingConfigs } from "../drizzle/schema";
 import { getDb } from "./db";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
+import {
+  DEFAULT_WEIGHTS,
+  RANKING_VERSION,
+  RANKING_WEIGHT_KEYS,
+  type RankingWeights,
+} from "./ranking/scoreProduct";
 
 const accountStatusSchema = z.enum(["active", "deactivated", "flagged", "paused"]);
 const planIdSchema = z.enum(["trial", "starter", "pro", "business", "agency"]);
@@ -49,6 +55,25 @@ const limitOverridesSchema = z
     watchlistItems: z.number().int().min(-1).optional(),
   })
   .optional();
+
+const rankingWeightsSchema = z.object({
+  trendMomentum: z.number().min(0).max(1),
+  demandPersistence: z.number().min(0).max(1),
+  metaAdSaturation: z.number().min(0).max(1),
+  tiktokPressure: z.number().min(0).max(1),
+  marginSpread: z.number().min(0).max(1),
+  supplierConfidence: z.number().min(0).max(1),
+  competitionIntensity: z.number().min(0).max(1),
+  freshnessDecay: z.number().min(0).max(1),
+  queryIntentMatch: z.number().min(0).max(1),
+  returnRisk: z.number().min(0).max(1),
+});
+
+function parseRankingWeights(raw: unknown): RankingWeights {
+  const parsed = rankingWeightsSchema.safeParse(raw);
+  if (!parsed.success) return { ...DEFAULT_WEIGHTS };
+  return { ...DEFAULT_WEIGHTS, ...parsed.data };
+}
 
 function addDays(date: Date, days: number): Date {
   const result = new Date(date);
@@ -84,6 +109,120 @@ export const adminRouter = router({
   exportUsers: adminProcedure.query(() => exportUsersForAdmin()),
 
   getPlatformAnalytics: adminProcedure.query(() => getPlatformAnalytics()),
+
+  getResearchQuality: adminProcedure.query(async () => {
+    const { getResearchQualityScorecard } = await import("./ranking/researchQuality");
+    const scorecard = await getResearchQualityScorecard();
+    return { scorecard };
+  }),
+
+  getRevenue: adminProcedure.query(async () => {
+    const { getRevenueStats } = await import("./billing/revenue");
+    return getRevenueStats();
+  }),
+
+  getRankingConfigs: adminProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return { configs: [], defaults: { ...DEFAULT_WEIGHTS }, version: RANKING_VERSION };
+
+    const rows = await db.select().from(rankingConfigs).orderBy(desc(rankingConfigs.updatedAt));
+    return {
+      version: RANKING_VERSION,
+      defaults: { ...DEFAULT_WEIGHTS },
+      weightKeys: RANKING_WEIGHT_KEYS,
+      configs: rows.map((row) => ({
+        id: row.id,
+        version: row.version,
+        region: row.region,
+        weights: parseRankingWeights(row.weights),
+        isActive: row.isActive,
+        updatedAt: row.updatedAt,
+      })),
+    };
+  }),
+
+  updateRankingConfig: adminProcedure
+    .input(
+      z.object({
+        id: z.number().int().optional(),
+        version: z.string().max(16).default(RANKING_VERSION),
+        region: z.enum(["US", "UK", "EU", "GLOBAL"]).nullable().optional(),
+        weights: rankingWeightsSchema,
+        isActive: z.boolean().default(true),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+
+      const weights = { ...DEFAULT_WEIGHTS, ...input.weights };
+      const region = input.region ?? null;
+
+      if (input.id != null) {
+        const existing = await db
+          .select()
+          .from(rankingConfigs)
+          .where(eq(rankingConfigs.id, input.id))
+          .limit(1);
+        if (!existing[0]) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Ranking config not found" });
+        }
+
+        await db
+          .update(rankingConfigs)
+          .set({
+            version: input.version,
+            region,
+            weights,
+            isActive: input.isActive,
+          })
+          .where(eq(rankingConfigs.id, input.id));
+
+        await audit(ctx.user.id, ctx.user.id, "update_ranking_config", {
+          id: input.id,
+          version: input.version,
+          region,
+          isActive: input.isActive,
+        });
+
+        return { id: input.id, weights, version: input.version, region, isActive: input.isActive };
+      }
+
+      if (input.isActive) {
+        await db
+          .update(rankingConfigs)
+          .set({ isActive: false })
+          .where(
+            and(
+              eq(rankingConfigs.version, input.version),
+              region == null ? isNull(rankingConfigs.region) : eq(rankingConfigs.region, region)
+            )
+          );
+      }
+
+      const insertResult = await db.insert(rankingConfigs).values({
+        version: input.version,
+        region,
+        weights,
+        isActive: input.isActive,
+      });
+
+      const insertedId = Number(insertResult[0]?.insertId ?? 0);
+      await audit(ctx.user.id, ctx.user.id, "create_ranking_config", {
+        id: insertedId,
+        version: input.version,
+        region,
+        isActive: input.isActive,
+      });
+
+      return {
+        id: insertedId,
+        weights,
+        version: input.version,
+        region,
+        isActive: input.isActive,
+      };
+    }),
 
   getActivityLog: adminProcedure
     .input(
@@ -590,6 +729,7 @@ export const adminRouter = router({
       support_email: String(raw.support_email ?? ""),
       ai_features_enabled: raw.ai_features_enabled !== false,
       self_serve_billing: raw.self_serve_billing === true,
+      google_login_enabled: raw.google_login_enabled === true,
     };
   }),
 
@@ -605,6 +745,7 @@ export const adminRouter = router({
         support_email: z.string().email().or(z.literal("")).optional(),
         ai_features_enabled: z.boolean().optional(),
         self_serve_billing: z.boolean().optional(),
+        google_login_enabled: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -625,6 +766,7 @@ export const adminRouter = router({
         support_email: String(raw.support_email ?? ""),
         ai_features_enabled: raw.ai_features_enabled !== false,
         self_serve_billing: raw.self_serve_billing === true,
+        google_login_enabled: raw.google_login_enabled === true,
       };
     }),
 });

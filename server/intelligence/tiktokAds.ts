@@ -241,7 +241,10 @@ export async function saveTikTokAdsSnapshot(snapshot: TikTokAdsSnapshot) {
   });
 }
 
-function rowToSnapshot(row: typeof tiktokAdsSnapshots.$inferSelect): TikTokAdsSnapshot {
+function rowToSnapshot(
+  row: typeof tiktokAdsSnapshots.$inferSelect,
+  stale = false
+): TikTokAdsSnapshot {
   return {
     keyword: row.keyword,
     region: row.region,
@@ -252,6 +255,7 @@ function rowToSnapshot(row: typeof tiktokAdsSnapshots.$inferSelect): TikTokAdsSn
     fetchedAt: row.fetchedAt.toISOString(),
     isLive: false,
     source: (row.source as TikTokAdsSnapshot["source"]) ?? "cached",
+    stale: stale || undefined,
   };
 }
 
@@ -298,7 +302,7 @@ export async function getTikTokAdsSnapshot(
       .where(and(eq(tiktokAdsSnapshots.keyword, kw), eq(tiktokAdsSnapshots.region, region)))
       .orderBy(desc(tiktokAdsSnapshots.fetchedAt))
       .limit(1);
-    if (stale[0]) return rowToSnapshot(stale[0]);
+    if (stale[0]) return rowToSnapshot(stale[0], true);
   }
 
   return null;

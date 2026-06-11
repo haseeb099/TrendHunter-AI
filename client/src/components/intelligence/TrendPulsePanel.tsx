@@ -110,6 +110,7 @@ export function TrendPulsePanel({ keyword, region = "US", compact = false }: Tre
         <DataFreshnessBadge
           dataMode={signal.isLive ? "live" : "cached"}
           cachedAt={signal.fetchedAt}
+          stale={signal.stale}
           creditsUsed={query.data?.creditsUsed}
         />
       </div>

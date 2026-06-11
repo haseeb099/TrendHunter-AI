@@ -95,7 +95,11 @@ export function TikTokIntelPanel({
         </div>
         <div className="flex items-center gap-2">
           {snapshot?.fetchedAt ? (
-            <DataFreshnessBadge dataMode="cached" cachedAt={snapshot.fetchedAt} stale={false} />
+            <DataFreshnessBadge
+              dataMode={snapshot.isLive ? "live" : "cached"}
+              cachedAt={snapshot.fetchedAt}
+              stale={"stale" in (snapshot ?? {}) ? (snapshot as { stale?: boolean }).stale : undefined}
+            />
           ) : null}
           {!publicMode && configured ? (
             <Button
@@ -208,6 +212,7 @@ function mapPublicTikTok(
     source: tiktok.source as "searchapi" | "scrapecreators" | "cached",
     gaps: [] as string[],
     fetchedAt: new Date().toISOString(),
+    isLive: false,
     creatives: tiktok.sampleCreatives.map((c) => ({
       id: c.id,
       advertiserName: c.advertiserName,

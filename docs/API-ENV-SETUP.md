@@ -159,6 +159,29 @@ These variables support trending feeds, region tabs, and filter defaults. Implem
 
 ---
 
+## Data platform — daily ingest & discovery queue
+
+Controls cache-first search, autonomous query expansion, and API budgets for the daily ingest cron (`pnpm ingest:daily`).
+
+| Variable | Required | Default | Purpose |
+|----------|----------|---------|---------|
+| `SEARCH_CACHE_TTL_HOURS` | No | `24` | Hours before search snapshots expire |
+| `OFFERS_CACHE_TTL_HOURS` | No | `24` | Supplier offers cache TTL |
+| `INGEST_MODE` | No | `cache_first` | Ingest strategy (`cache_first` or `live_first`) |
+| `SERPAPI_DAILY_CAP` | No | `10` | Max SerpAPI calls per day (ingest budget) |
+| `JUSTSERP_DAILY_CAP` | No | `10` | Max Just Serp calls per day |
+| `META_ADS_DAILY_CAP` | No | `15` | Max Meta Ad Library fetches per day |
+| `TIKTOK_ADS_DAILY_CAP` | No | `10` | Max TikTok Ad Library fetches per day |
+| `DISCOVERY_QUEUE_MAX_PER_RUN` | No | `40` | Max autonomous queries processed per daily ingest |
+| `DISCOVERY_QUEUE_PRIORITY_MIN` | No | `0.4` | Skip generated queries below this priority |
+| `RANKING_VERSION` | No | `v2` | Ranking model: `v1` (legacy fusion) or `v2` (decision engine) |
+| `HEALTH_PROBE_EXTERNAL` | No | `false` | When `true`, deep health checks probe eBay/SerpAPI/Meta |
+| `INGEST_SECRET` | No | — | Optional auth for HTTP ingest trigger |
+
+User live search still charges credits after success; ingest caps are platform-wide.
+
+---
+
 ## Supplier & warehouse APIs (planned — Phase 4)
 
 Inspired by AliExpress, CJ Dropshipping, and similar sourcing tools.

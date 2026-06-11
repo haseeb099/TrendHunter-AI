@@ -32,10 +32,14 @@ export function usePlan() {
     const isDeactivated = user?.accountStatus === "deactivated";
 
     const isRestricted = (isPaused || isFlagged || isDeactivated) && user?.role !== "admin";
+    const isSubscriptionInactive =
+      Boolean(subscription && !subscription.isActive) && user?.role !== "admin";
 
     const canAccessTab = (tab: DashboardTabId): boolean => {
       if (ALWAYS_ACCESSIBLE_TABS.includes(tab)) return true;
+      if (user?.role === "admin") return true;
       if (isRestricted) return false;
+      if (!subscription?.isActive) return false;
       const feature = TAB_REQUIRED_FEATURE[tab as keyof typeof TAB_REQUIRED_FEATURE];
       if (!feature) return true;
       return canAccess(feature);
@@ -85,6 +89,7 @@ export function usePlan() {
       isFlagged: isFlagged && user?.role !== "admin",
       isDeactivated: isDeactivated && user?.role !== "admin",
       isRestricted,
+      isSubscriptionInactive,
       flagReason: user?.flagReason ?? null,
       role: user?.role ?? "user",
       accountStatus: user?.accountStatus ?? "active",

@@ -39,12 +39,15 @@ import {
   PauseCircle,
   XCircle,
   GripVertical,
+  Calculator,
 } from "lucide-react";
 import type { PipelineItem } from "../../../drizzle/schema";
 import { trpc } from "@/lib/trpc";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { Link } from "wouter";
+import { getDashboardPath } from "@/config/dashboardNav";
 
 const STAGES = ["testing", "scaling", "paused", "dropped"] as const;
 type Stage = (typeof STAGES)[number];
@@ -405,6 +408,14 @@ function PipelineCardContent({
           </span>
         </div>
       ) : null}
+      <Button size="sm" variant="outline" className="w-full h-8 text-xs" asChild>
+        <Link
+          href={`${getDashboardPath("profit")}?productTitle=${encodeURIComponent(product.productTitle)}&sellingPrice=${product.price ?? 0}${product.landedCost != null ? `&productCost=${product.landedCost}` : ""}`}
+        >
+          <Calculator className="w-3.5 h-3.5 mr-1" />
+          Open profit calc
+        </Link>
+      </Button>
       <Select value={product.stage} onValueChange={(v) => onStageChange(v as Stage)}>
         <SelectTrigger className="h-8 text-xs" aria-label="Change pipeline stage">
           <SelectValue />

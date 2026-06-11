@@ -17,6 +17,7 @@ import { getRegisterUrl } from "@/const";
 
 import { toast } from "sonner";
 import { safeRedirectPath } from "@/lib/safeRedirect";
+import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 
 function useRedirectPath() {
   if (typeof window === "undefined") return "/dashboard";
@@ -36,6 +37,7 @@ export default function Login() {
   }, [loading, user, navigate, redirectPath]);
 
   const utils = trpc.useUtils();
+  const configQuery = trpc.system.getConfig.useQuery();
 
   const [email, setEmail] = useState("");
 
@@ -110,8 +112,12 @@ export default function Login() {
         </div>
 
         <div className="space-y-2">
-
-          <Label htmlFor="password">Password</Label>
+          <div className="flex items-center justify-between">
+            <Label htmlFor="password">Password</Label>
+            <Link href="/forgot-password" className="text-xs text-primary hover:underline">
+              Forgot password?
+            </Link>
+          </div>
 
           <Input
 
@@ -138,6 +144,20 @@ export default function Login() {
           {loginMutation.isPending ? "Signing in…" : "Sign in"}
 
         </Button>
+
+        {configQuery.data?.googleLoginEnabled ? (
+          <>
+            <div className="relative py-1">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t border-border" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">or</span>
+              </div>
+            </div>
+            <GoogleSignInButton redirectPath={redirectPath} />
+          </>
+        ) : null}
 
       </form>
 

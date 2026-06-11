@@ -15,6 +15,9 @@ import { trpc } from "@/lib/trpc";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Info } from "lucide-react";
+import { DataFreshnessBadge } from "@/components/intelligence/DataFreshnessBadge";
 
 const SUGGESTED_PROMPTS = [
   "What product categories are trending on TikTok Shop this month?",
@@ -100,6 +103,9 @@ export default function AIAgent() {
       });
       if (response) {
         setMessages((prev) => [...prev, { role: "assistant", content: response.message }]);
+        if (response.sessionTitle) {
+          await utils.agent.getChatSessions.invalidate();
+        }
       }
     } catch (err) {
       setMessages((prev) => prev.slice(0, -1));
@@ -194,8 +200,20 @@ export default function AIAgent() {
           title="AI Research Agent"
           description="Your product research advisor — sourcing, margins, trends, and go-to-market strategy."
         />
+        <div className="flex justify-end -mt-4">
+          <DataFreshnessBadge synthetic />
+        </div>
 
         <AiFeatureGate disabled={aiDisabled} feature="AI research chat" />
+
+        <Alert className="border-border bg-muted/30">
+          <Info className="h-4 w-4" />
+          <AlertDescription className="text-xs leading-relaxed">
+            This agent uses general AI knowledge only — it is not connected to live marketplace feeds,
+            your watchlist, or real-time trend data. Verify sourcing and demand in Discover and Intel
+            Center before acting on recommendations.
+          </AlertDescription>
+        </Alert>
 
         <SessionMobilePicker />
         <div className="grid lg:grid-cols-[220px_1fr] gap-4 min-h-[420px]">
@@ -250,13 +268,24 @@ export default function AIAgent() {
           description="Ask follow-ups, compare options, and refine your product strategy."
           className="flex-1 min-w-0"
         />
-        <Button variant="outline" size="sm" onClick={handleNewChat} disabled={aiDisabled} className="shrink-0">
-          <Plus className="w-4 h-4" />
-          New chat
-        </Button>
+        <div className="flex flex-col items-end gap-2 shrink-0">
+          <DataFreshnessBadge synthetic />
+          <Button variant="outline" size="sm" onClick={handleNewChat} disabled={aiDisabled}>
+            <Plus className="w-4 h-4" />
+            New chat
+          </Button>
+        </div>
       </div>
 
       <AiFeatureGate disabled={aiDisabled} feature="AI research chat" />
+
+      <Alert className="border-border bg-muted/30">
+        <Info className="h-4 w-4" />
+        <AlertDescription className="text-xs leading-relaxed">
+          Responses are AI-generated and not wired to live feeds. Cross-check trends, ads, and supplier
+          data in your workspace.
+        </AlertDescription>
+      </Alert>
 
       <SessionMobilePicker />
 

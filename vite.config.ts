@@ -33,6 +33,11 @@ function vitePluginAnalytics(): Plugin {
 }
 
 export default defineConfig({
+  define: {
+    "import.meta.env.VITE_SENTRY_DSN": JSON.stringify(
+      process.env.VITE_SENTRY_DSN ?? process.env.SENTRY_DSN ?? ""
+    ),
+  },
   plugins: [react(), tailwindcss(), jsxLocPlugin(), vitePluginAnalytics()],
   resolve: {
     alias: {

@@ -1,14 +1,15 @@
 import type { ProductHuntFilters, ProductSearchResponse, RegionCode } from "@shared/searchTypes";
 import { ENV } from "../_core/env";
 import { searchEbay, isEbayConfigured } from "./ebay";
-import { searchAmazon, searchGoogleShopping, isSerpApiConfigured } from "./serpapi";
+import { searchAmazon, searchGoogleShopping, isSerpApiConfigured, isSerpConfigured } from "./serpapi";
 import { searchTikTok, isTikTokConfigured } from "./tiktok";
 import { searchFreeRetail, isFreeRetailEnabled } from "./freeRetail";
 import { searchShoptera, isShopteraEnabled } from "./shoptera";
-import { searchMock } from "./mock";
 import { applyProductHuntFilters } from "./filters";
 import { dedupeResults, type SearchPlatform } from "./utils";
 import { normalizeProducts } from "./normalize";
+import { mergeSearchResults, persistListings } from "../dataPlatform/productGraph";
+
 export async function searchProductsLive(
   query: string,
   platform: SearchPlatform,
@@ -16,7 +17,7 @@ export async function searchProductsLive(
 ): Promise<ProductSearchResponse> {
   const trimmed = query.trim();
   if (!trimmed) {
-    return { results: [], sources: [], isDemo: true, dataMode: "demo" };
+    return { results: [], sources: [], isDemo: false };
   }
 
   const region = filters?.region ?? (ENV.defaultRegion as RegionCode);
@@ -39,7 +40,7 @@ export async function searchProductsLive(
   }
 
   if (platform === "all" || platform === "shopify") {
-    if (isSerpApiConfigured()) {
+    if (isSerpConfigured()) {
       tasks.push({
         source: "google_shopping",
         label: "Google Shopping",
@@ -109,26 +110,20 @@ export async function searchProductsLive(
     }
   });
 
-  const hasLiveData = sources.length > 0;
+  results = mergeSearchResults(dedupeResults(results));
+  await persistListings(results, region);
+  results = applyProductHuntFilters(results, filters).slice(0, ENV.trendingMaxItems);
 
-  if (!hasLiveData) {
-    sources.push("mock");
-    results = searchMock(trimmed, platform, filters);
+  if (results.length === 0) {
+    warnings.push("No results from configured providers for this query.");
   }
-
-  results = applyProductHuntFilters(dedupeResults(results), filters).slice(
-    0,
-    ENV.trendingMaxItems
-  );
 
   return {
     results,
     sources,
-    isDemo: !hasLiveData,
-    dataMode: hasLiveData ? "live" : "demo",
+    isDemo: false,
+    dataMode: results.length > 0 ? "live" : undefined,
     cachedAt: new Date().toISOString(),
     warnings: warnings.length > 0 ? warnings : undefined,
   };
 }
-
-// Re-export for tests — getSearchProviderStatus stays in index.ts

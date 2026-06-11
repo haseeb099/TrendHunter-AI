@@ -20,6 +20,9 @@ import type { ProductDrawerTab } from "@/components/product-workspace/types";
 import { Link } from "wouter";
 import { getDashboardPath } from "@/config/dashboardNav";
 import { keywordToSlug } from "@shared/keywordUtils";
+import { TrendScoreExplain } from "@/components/intelligence/TrendScoreExplain";
+import { useProductAnalytics } from "@/_core/hooks/useProductAnalytics";
+import { useEffect, useRef } from "react";
 
 type ProductCardProps = {
   product: ProductSearchResult;
@@ -29,6 +32,8 @@ type ProductCardProps = {
   savePending?: boolean;
   pipelinePending?: boolean;
   showTrendBadge?: boolean;
+  /** Show Discover rank explanation (rankReason). */
+  showRankReason?: boolean;
 };
 
 export function ProductCard({
@@ -39,15 +44,36 @@ export function ProductCard({
   savePending,
   pipelinePending,
   showTrendBadge = true,
+  showRankReason = false,
 }: ProductCardProps) {
   const currency = product.currency ?? "USD";
+  const { track } = useProductAnalytics();
+  const impressionSent = useRef(false);
+
+  useEffect(() => {
+    if (impressionSent.current) return;
+    impressionSent.current = true;
+    track("product_impression", {
+      canonicalProductId: product.canonicalProductId,
+      productId: product.id,
+      platform: product.platform,
+      sourceProvider: product.sourceProvider,
+    });
+  }, [product.canonicalProductId, product.id, product.platform, product.sourceProvider, track]);
 
   return (
     <Card className="surface-interactive overflow-hidden p-0 flex flex-col group">
       <button
         type="button"
         className="aspect-[4/3] bg-muted/40 border-b border-border flex items-center justify-center overflow-hidden w-full cursor-pointer relative"
-        onClick={() => onViewDetails?.(product, "overview")}
+        onClick={() => {
+          track("product_click", {
+            canonicalProductId: product.canonicalProductId,
+            productId: product.id,
+            sourceProvider: product.sourceProvider,
+          });
+          onViewDetails?.(product, "overview");
+        }}
       >
         {product.image ? (
           <img
@@ -72,7 +98,14 @@ export function ProductCard({
           <button
             type="button"
             className="text-left w-full"
-            onClick={() => onViewDetails?.(product, "overview")}
+            onClick={() => {
+          track("product_click", {
+            canonicalProductId: product.canonicalProductId,
+            productId: product.id,
+            sourceProvider: product.sourceProvider,
+          });
+          onViewDetails?.(product, "overview");
+        }}
           >
             <h3 className="font-display text-[15px] font-semibold leading-snug line-clamp-2 hover:text-primary transition-colors">
               {product.title}
@@ -93,12 +126,22 @@ export function ProductCard({
                 Trending
               </Badge>
             ) : null}
+            {product.sourceProvider ? (
+              <Badge variant="outline" className="text-[10px] capitalize">
+                via {product.sourceProvider.replace("_", " ")}
+              </Badge>
+            ) : null}
             {product.supplier ? (
               <Badge variant="outline" className="text-muted-foreground text-[11px]">
                 {product.supplier}
               </Badge>
             ) : null}
           </div>
+          {showRankReason && product.rankReason ? (
+            <p className="text-[11px] text-muted-foreground leading-snug line-clamp-2">
+              {product.rankReason}
+            </p>
+          ) : null}
         </div>
 
         <div className="grid grid-cols-3 gap-2 text-sm mt-auto">
@@ -126,7 +169,11 @@ export function ProductCard({
           ) : product.trendScore !== undefined ? (
             <div>
               <p className="metric-label text-[10px] mb-0.5">Trend</p>
-              <p className="text-[13px] font-medium">{product.trendScore}</p>
+              <TrendScoreExplain
+                score={product.trendScore}
+                inputs={product.trendScoreInputs}
+                compact
+              />
             </div>
           ) : null}
         </div>

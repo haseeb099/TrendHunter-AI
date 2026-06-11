@@ -18,7 +18,7 @@ console.log(`\n=== Searching "${query}" on platform "${platform}" region "${regi
 
 try {
   const result = await searchProducts(query, platform, { region, sort: "price_asc" });
-  console.log(`Demo mode: ${result.isDemo}`);
+  console.log(`Has results: ${result.results.length > 0}`);
   console.log(`Sources: ${result.sources.join(", ")}`);
   console.log(`Results: ${result.results.length}`);
   if (result.warnings?.length) {
@@ -44,17 +44,11 @@ try {
   console.log(`US currency sample: ${usCurrency ?? "n/a"}`);
   console.log(`UK currency sample: ${ukCurrency ?? "n/a"}`);
 
-  const liveConfigured = getSearchProviderStatus().some(
-    (p) => p.configured && p.id !== "mock"
-  );
-  if (result.isDemo && liveConfigured) {
-    console.warn("\nWarning: live providers are configured but search returned demo data.");
+  if (result.results.length === 0) {
+    console.warn("\nNo results — run `pnpm ingest:daily` or try live search.");
     process.exitCode = 1;
-  } else if (result.isDemo && !liveConfigured) {
-    console.log("\nNo API keys in .env — demo data is expected.");
-    console.log('Add keys to .env and re-run: pnpm search:verify "your query" all US');
   } else {
-    console.log("\nLive search succeeded.");
+    console.log("\nSearch returned cached/catalog results.");
   }
 } catch (error) {
   console.error("Search failed:", error);

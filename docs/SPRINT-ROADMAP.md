@@ -19,6 +19,21 @@ Phased delivery plan for production hardening. Each sprint is independently ship
 | **S11** | Intelligence hub + Social Kit save/load + full kit | Done |
 | **S12** | Intel Center sidebar + digest pages + UX polish | Done |
 | **S13** | Category filters, keyword watches, email digest | Done |
+| **S14** | Robustness & security hardening | Done |
+| **S15** | Scale, SEO, TikTok intel, guest UX | Done |
+| **S15.5** | Research engine pre-flight | Done |
+| **S16** | Canonical product graph | Done |
+| **S17** | Query expansion & discovery queue | Done |
+| **S18** | Ranking engine v2 | Done |
+| **S19** | Provider health & reliability | Done |
+| **S20** | Category & regional coverage | Done |
+| **S21** | Trust UX drawer panels | Done |
+| **S22** | Learning loop (product events) | Done |
+| **S23** | Research quality benchmarks | Done |
+| **S24** | Ingest ops APIs | Done |
+| **S25** | Agent search tool integration | Done |
+
+> **Note:** [`PROJECT-AUDIT-AND-ROADMAP.md`](./PROJECT-AUDIT-AND-ROADMAP.md) Phase C sprints **S16–S18** (MRR dashboard, agent polish, Google OAuth) are a **parallel Business track** renamed **S16B–S18B** to avoid collision with Research Engine S16–S25.
 
 ---
 
@@ -256,3 +271,165 @@ Phased delivery plan for production hardening. Each sprint is independently ship
 - Guest home drawer uses `getPublicTrend` (no auth-only APIs)
 
 **Exit criteria:** `pnpm check` + `pnpm test` pass; `pnpm db:migrate` through `0012`.
+
+---
+
+## Sprint 15.5 — Research engine pre-flight
+
+**Goal:** Harden cache-first search and daily ingest before building the autonomous research pipeline.
+
+**Deliverables:**
+- Cache-first `searchProducts` with stale fallback and live credit gating ([`server/search/index.ts`](../server/search/index.ts))
+- Daily ingest orchestrator with retry queue ([`server/ingest/daily.ts`](../server/ingest/daily.ts))
+- `SERPAPI_DAILY_CAP`, `DISCOVERY_QUEUE_*` env knobs in [`server/_core/env.ts`](../server/_core/env.ts)
+
+**Exit criteria:** Ingest runs without live keys; search returns cached results when live fails.
+
+---
+
+## Sprint 16 — Canonical product graph
+
+**Goal:** Deduplicate multi-provider listings into canonical products for stable ranking and delta tracking.
+
+**Deliverables:**
+- Migration `0015_product_graph.sql` — `canonical_products`, `product_listings`
+- [`server/dataPlatform/productGraph.ts`](../server/dataPlatform/productGraph.ts) — title normalization, Jaccard dedupe, price bands
+- Unit tests in [`server/dataPlatform/productGraph.test.ts`](../server/dataPlatform/productGraph.test.ts)
+
+**Exit criteria:** Same product from eBay + SerpAPI merges to one canonical ID.
+
+---
+
+## Sprint 17 — Query expansion & discovery queue
+
+**Goal:** Autonomous overnight discovery from trends, ads, and user behavior — not just manual search.
+
+**Deliverables:**
+- Migration `0016_research_engine.sql` — `discovery_queue`, `product_features`, `ingest_retries`, `ranking_configs`, `trending_snapshot_diffs`
+- [`server/discovery/queryExpansion.ts`](../server/discovery/queryExpansion.ts) — rising keywords, synonym variants, adjacent queries
+- [`server/discovery/keywordLinker.ts`](../server/discovery/keywordLinker.ts) — title → trend keyword linking
+- Tests in [`server/discovery/queryExpansion.test.ts`](../server/discovery/queryExpansion.test.ts)
+
+**Env:** `DISCOVERY_QUEUE_MAX_PER_RUN`, `DISCOVERY_QUEUE_PRIORITY_MIN`
+
+**Exit criteria:** Daily ingest enqueues and processes discovery queries; queue depth visible via ingest status API.
+
+---
+
+## Sprint 18 — Ranking engine v2
+
+**Goal:** Replace opaque trend fusion with a 10-signal decision engine and explainable scores.
+
+**Deliverables:**
+- [`server/ranking/scoreProduct.ts`](../server/ranking/scoreProduct.ts) — weighted signals, `rankingExplanation`, config table fallback
+- [`server/ranking/features.ts`](../server/ranking/features.ts) — materialized `product_features`
+- [`server/ranking/robustness.ts`](../server/ranking/robustness.ts) + tests — query synonym stability
+- [`client/src/components/intelligence/TrendScoreExplain.tsx`](../client/src/components/intelligence/TrendScoreExplain.tsx) — score popover on Search + Discover
+- `rankReason` on trending feed ([`server/trending/rankReason.ts`](../server/trending/rankReason.ts))
+
+**Env:** `RANKING_VERSION=v2` (default; set `v1` for legacy fusion)
+
+**Exit criteria:** Products show top signals + confidence tier; admin can inspect score breakdown.
+
+---
+
+## Sprint 19 — Provider health & reliability
+
+**Goal:** Circuit-break degraded providers; retry failed ingest steps without losing queue state.
+
+**Deliverables:**
+- [`server/_core/providerHealth.ts`](../server/_core/providerHealth.ts) — Redis-backed circuit breaker with in-memory fallback
+- [`server/ingest/ingestRetries.ts`](../server/ingest/ingestRetries.ts) — `ingest_retries` table + processor
+- [`client/src/components/intelligence/ProviderStatusBar.tsx`](../client/src/components/intelligence/ProviderStatusBar.tsx) — degraded provider banner
+- Tests in [`server/_core/providerHealth.test.ts`](../server/_core/providerHealth.test.ts)
+
+**Env:** `REDIS_URL` (recommended prod), `HEALTH_PROBE_EXTERNAL=true` for deep probes
+
+**Exit criteria:** Repeated provider failures open circuit; ingest retries drain on next run.
+
+---
+
+## Sprint 20 — Category & regional coverage
+
+**Goal:** Category-aware provider routing and EU/GLOBAL ingest alongside US/UK.
+
+**Deliverables:**
+- [`server/search/categories.ts`](../server/search/categories.ts) — category inference + provider priority
+- `ENV.supportedRegions` from `SUPPORTED_REGIONS` (US, UK, EU, GLOBAL)
+- EU/GLOBAL daily ingest paths in [`server/ingest/daily.ts`](../server/ingest/daily.ts)
+- Tests in [`server/search/categories.test.ts`](../server/search/categories.test.ts)
+
+**Exit criteria:** Discover returns region-appropriate results; category chips filter provider mix.
+
+---
+
+## Sprint 21 — Trust UX drawer panels
+
+**Goal:** Product drawer explains *why* a product ranks, what changed, and what to do next.
+
+**Deliverables:**
+- Six trust panels in [`client/src/components/product-workspace/`](../client/src/components/product-workspace/):
+  - `ProductWhyPanel` — ranking explanation summary
+  - `NextMovesPanel` — actionable recommendations ([`server/ranking/nextMoves.ts`](../server/ranking/nextMoves.ts))
+  - `ProductDeltaPanel` — snapshot diff since last ingest
+  - `CompetitorPressurePanel`, `CategoryWinnersPanel`, `SupplierConfidencePanel`
+- [`client/src/components/intelligence/DataCoverageBanner.tsx`](../client/src/components/intelligence/DataCoverageBanner.tsx) + `DataFreshnessBadge`
+- Wired into [`ProductDetailDrawer.tsx`](../client/src/components/ProductDetailDrawer.tsx)
+
+**Exit criteria:** Drawer tabs load without auth-only gaps; synthetic vs live badges per [`DATA-TRUTH-CONTRACT.md`](./DATA-TRUTH-CONTRACT.md).
+
+---
+
+## Sprint 22 — Learning loop (product events)
+
+**Goal:** Capture user product interactions to improve discovery query expansion.
+
+**Deliverables:**
+- `product_click`, `product_view`, `watchlist_add` events in `user_events` ([`server/db.ts`](../server/db.ts))
+- [`client/src/_core/hooks/useProductAnalytics.ts`](../client/src/_core/hooks/useProductAnalytics.ts) + [`ProductCard.tsx`](../client/src/components/ProductCard.tsx) tracking
+- Query expansion reads click history ([`server/discovery/queryExpansion.ts`](../server/discovery/queryExpansion.ts))
+
+**Exit criteria:** Clicked products influence next discovery queue batch.
+
+---
+
+## Sprint 23 — Research quality benchmarks
+
+**Goal:** Admin scorecard + competitor positioning doc for research engine quality.
+
+**Deliverables:**
+- [`server/ranking/researchQuality.ts`](../server/ranking/researchQuality.ts) — zero-result rate, coverage, robustness metrics
+- [`client/src/pages/admin/AdminResearchQualityTab.tsx`](../client/src/pages/admin/AdminResearchQualityTab.tsx) — admin scorecard at `/admin/research-quality`
+- [`docs/COMPETITOR-BENCHMARK.md`](./COMPETITOR-BENCHMARK.md) — positioning vs typical research tools
+
+**Exit criteria:** Admin sees research quality metrics without SQL; benchmark doc published.
+
+---
+
+## Sprint 24 — Ingest ops APIs
+
+**Goal:** Operators monitor and trigger ingest without SSH or cron guesswork.
+
+**Deliverables:**
+- [`server/_core/ingestRoutes.ts`](../server/_core/ingestRoutes.ts):
+  - `POST /api/ingest/daily` — manual trigger (requires `INGEST_SECRET`)
+  - `GET /api/ingest/status` — queue depth, last run, retry counts, provider health
+- [`server/ingest/snapshotDiff.ts`](../server/ingest/snapshotDiff.ts) — trending snapshot diffs
+- [`server/dataPlatform/snapshotDiff.ts`](../server/dataPlatform/snapshotDiff.ts)
+
+**Env:** `INGEST_SECRET`
+
+**Exit criteria:** Ops can trigger ingest and read status via HTTP; GitHub Actions daily workflow unchanged.
+
+---
+
+## Sprint 25 — Agent search tool integration
+
+**Goal:** AI agent can search products from chat with the same ranking explainability as the workspace.
+
+**Deliverables:**
+- `searchProductsTool` in [`server/routers.ts`](../server/routers.ts) — agent tool calling for product search
+- Responses include `sourceUrl` + `rankingExplanation.summary` where available
+- Discover feed and Search tab share rank reason + trend score explain components
+
+**Exit criteria:** Agent returns ranked product summaries; Search/Discover show consistent explainability.

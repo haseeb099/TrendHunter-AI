@@ -4,8 +4,13 @@ import { getAiStatus } from "./aiHelpers";
 import { getPlatformSettings } from "../planCatalog";
 import { ENV } from "./env";
 import { isMetaAdLibraryConfigured } from "../intelligence/adLibrary";
+import { isSerpConfigured, isSerpApiConfigured } from "../search/serpapi";
+import { isJustSerpConfigured } from "../search/justserp";
 import { isTikTokAdsConfigured, tikTokAdsProvider } from "../intelligence/tiktokAds";
 import { isRedisConfigured } from "./redis";
+import { runDeepHealthChecks } from "./healthChecks";
+import { getAllProviderHealth } from "./providerHealth";
+import { isGoogleOAuthConfigured } from "./oauth/google";
 
 export const systemRouter = router({
   health: publicProcedure
@@ -17,6 +22,16 @@ export const systemRouter = router({
     .query(() => ({
       ok: true,
     })),
+
+  deepHealth: publicProcedure.query(async () => {
+    const result = await runDeepHealthChecks();
+    return {
+      ok: result.ok,
+      checks: result.checks,
+      timestamp: Date.now(),
+    };
+  }),
+
   getConfig: publicProcedure.query(async () => {
     const settings = await getPlatformSettings();
     return {
@@ -32,15 +47,23 @@ export const systemRouter = router({
       maintenanceMessage: String(settings.maintenance_message ?? "") || null,
       selfServeBilling: settings.self_serve_billing === true,
       registrationEnabled: settings.registration_enabled !== false,
+      googleLoginEnabled: settings.google_login_enabled === true && isGoogleOAuthConfigured(),
+      betaMode: ENV.betaMode,
+      betaRequiresInvite: ENV.betaMode && Boolean(ENV.betaInviteCode),
       dataPlatform: {
         cacheFirst: ENV.ingestMode,
         trendingCacheTtlHours: ENV.trendingCacheTtlHours,
-        serpApiConfigured: Boolean(ENV.serpApiKey),
+        serpApiConfigured: isSerpApiConfigured(),
+        justSerpConfigured: isJustSerpConfigured(),
+        serpConfigured: isSerpConfigured(),
         metaAdsConfigured: isMetaAdLibraryConfigured(),
         tiktokAdsConfigured: isTikTokAdsConfigured(),
         tiktokAdsProvider: tikTokAdsProvider(),
         redisConfigured: isRedisConfigured(),
         liveSearchRequiresCredits: ENV.liveSearchRequiresCredits,
+        discoveryQueueMaxPerRun: ENV.discoveryQueueMaxPerRun,
+        serpApiDailyCap: ENV.serpApiDailyCap,
+        providerHealth: await getAllProviderHealth(),
       },
     };
   }),

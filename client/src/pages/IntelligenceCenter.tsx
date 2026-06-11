@@ -14,6 +14,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { getDashboardPath } from "@/config/dashboardNav";
 import type { ProductSearchResult, RegionCode } from "@shared/searchTypes";
 import { IntelAlertsPanel } from "@/components/intelligence/IntelAlertsPanel";
+import { ProviderStatusBar } from "@/components/intelligence/ProviderStatusBar";
+import { DataCoverageBanner } from "@/components/intelligence/DataCoverageBanner";
 import { ArrowRight, Info, LineChart, Radar, Sparkles } from "lucide-react";
 import { Link } from "wouter";
 
@@ -46,6 +48,10 @@ export default function IntelligenceCenter() {
           ) : null
         }
       />
+
+      <ProviderStatusBar />
+
+      <DataCoverageBanner pageId="intel-center" />
 
       <div className="grid gap-4 sm:grid-cols-3">
         <SourceCard

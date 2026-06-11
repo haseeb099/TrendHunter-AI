@@ -15,6 +15,13 @@ export type ProductValidationResult = {
   supplierReliability: number;
   overallScore: number;
   reasoning: string;
+  dimensionReasoning?: {
+    trendScore: string;
+    saturationScore: string;
+    profitPotential: string;
+    supplierReliability: string;
+    overallScore: string;
+  };
 };
 
 export type ProductValidationResponse = ProductValidationResult & {
@@ -34,5 +41,6 @@ export function pickValidationScores(
     supplierReliability: data.supplierReliability,
     overallScore: data.overallScore,
     reasoning: data.reasoning,
+    dimensionReasoning: data.dimensionReasoning,
   };
 }

@@ -2,9 +2,11 @@
 
 **Audit date:** June 10, 2026  
 **Scope:** Entire codebase, docs (`PRD`, `TRD`, `SPRINT-ROADMAP`, `API-ENV-SETUP`), tests, deployment, and product completeness.  
-**Health check:** `pnpm test` — 54/54 passing · `pnpm check` — clean TypeScript
+**Health check:** `pnpm test` — 111/111 passing · `pnpm check` — clean TypeScript
 
 This document extends [`SPRINT-ROADMAP.md`](./SPRINT-ROADMAP.md) (Sprints 1–6, done) with a full audit and a forward roadmap through production launch and beyond.
+
+> **Research Engine (S15.5–S25):** Shipped and documented in [`SPRINT-ROADMAP.md`](./SPRINT-ROADMAP.md). The sprints below in **Phase C (S16B–S18B)** are a **parallel Business track** — admin MRR, agent polish, Google OAuth — renamed to avoid collision with Research Engine S16–S25.
 
 ---
 
@@ -84,7 +86,7 @@ Z  Zero-downtime deploy     ⚠️  Single-container; no blue/green
 
 | Gap | PRD reference | Current state | Sprint |
 |-----|---------------|---------------|--------|
-| Agency “Multi-client workspaces” | Implied in Agency plan copy | Not built; PRD lists orgs as **non-goal** | S16 or remove from marketing |
+| Agency “Multi-client workspaces” | Implied in Agency plan copy | Not built; PRD lists orgs as **non-goal** | S16B or remove from marketing |
 | Agency “White-label export” | Agency plan features | No export endpoints or UI | S14 |
 | User self-service password reset | Expected SaaS baseline | Admin-only `resetPassword` | S8 |
 | Email verification on register | Industry standard | None | S8 |
@@ -120,7 +122,7 @@ Z  Zero-downtime deploy     ⚠️  Single-container; no blue/green
 | CSRF for cookie auth | ⚠️ tRPC POST from same origin — OK for SPA; document threat model | S10 |
 | Audit log for user actions | ✅ Admin actions only; no user self-audit | S11 |
 | GDPR export / delete account | ❌ | S11 |
-| 2FA | ❌ | S18 |
+| 2FA | ❌ | S18B |
 
 ### 3.5 Testing gaps
 
@@ -296,7 +298,9 @@ Each sprint is **independently shippable**. Priority order reflects launch readi
 
 ---
 
-### Phase C — Platform & scale (S15–S18)
+### Phase C — Platform & scale (S15–S18B)
+
+> **Research Engine complete:** S15.5–S25 (product graph, discovery queue, ranking v2, trust panels, ingest ops) — see [`SPRINT-ROADMAP.md`](./SPRINT-ROADMAP.md). Remaining Phase C items below are the **Business track (S16B–S18B)**.
 
 #### Sprint 15 — Deployment & ops
 **Goal:** Repeatable production deploys.
@@ -312,7 +316,7 @@ Each sprint is **independently shippable**. Priority order reflects launch readi
 
 ---
 
-#### Sprint 16 — Admin & analytics depth
+#### Sprint 16B — Admin & analytics depth
 **Goal:** Operators run the business from Admin.
 
 **Deliverables:**
@@ -326,7 +330,7 @@ Each sprint is **independently shippable**. Priority order reflects launch readi
 
 ---
 
-#### Sprint 17 — AI agent upgrades
+#### Sprint 17B — AI agent upgrades
 **Goal:** Agent becomes a true research copilot.
 
 **Deliverables:**
@@ -339,7 +343,7 @@ Each sprint is **independently shippable**. Priority order reflects launch readi
 
 ---
 
-#### Sprint 18 — Authentication expansion
+#### Sprint 18B — Authentication expansion
 **Goal:** Reduce signup friction; enterprise-ready auth.
 
 **Deliverables:**
@@ -382,9 +386,9 @@ Each sprint is **independently shippable**. Priority order reflects launch readi
 | **P0 — Launch** | S7, S9, S10 | CI, subscription enforcement, security |
 | **P1 — Trust** | S8, S11 | Email, compliance, demo transparency |
 | **P1 — Quality** | S12, S13 | Live data, E2E, a11y |
-| **P2 — Revenue** | S14, S16 | Export, admin revenue analytics |
+| **P2 — Revenue** | S14, S16B | Export, admin revenue analytics |
 | **P2 — Ops** | S15 | Deploy automation |
-| **P3 — Differentiation** | S17, S18 | AI agent tools, OAuth/2FA |
+| **P3 — Differentiation** | S17B, S18B | AI agent tools, OAuth/2FA |
 | **P4 — Vision** | S19–S22 | i18n, teams, integrations, PWA |
 
 ---
@@ -439,7 +443,7 @@ Full detail: [`API-ENV-SETUP.md`](./API-ENV-SETUP.md) · Stripe: [`STRIPE-SETUP.
 
 | Document | Purpose |
 |----------|---------|
-| [`SPRINT-ROADMAP.md`](./SPRINT-ROADMAP.md) | Shipped sprints S1–S6 |
+| [`SPRINT-ROADMAP.md`](./SPRINT-ROADMAP.md) | Shipped sprints S1–S25 (Research Engine S15.5–S25) |
 | [`PRD.md`](./PRD.md) | Product requirements |
 | [`TRD.md`](./TRD.md) | Technical architecture |
 | [`API-ENV-SETUP.md`](./API-ENV-SETUP.md) | All environment variables |

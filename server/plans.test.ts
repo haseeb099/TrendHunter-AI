@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { User } from "../drizzle/schema";
 import { planHasFeature, PLAN_DEFINITIONS } from "@shared/plans";
-import { assertAccountUsable, resolveEffectivePlan } from "./plans";
+import {
+  assertAccountUsable,
+  assertSubscriptionActive,
+  buildSubscriptionInfo,
+  resolveEffectivePlan,
+} from "./plans";
 import { TRPCError } from "@trpc/server";
-import { ACCOUNT_FLAGGED_ERR_MSG } from "@shared/const";
+import { ACCOUNT_FLAGGED_ERR_MSG, SUBSCRIPTION_INACTIVE_ERR_MSG } from "@shared/const";
 
 function mockUser(overrides: Partial<User>): User {
   return {
@@ -28,6 +33,8 @@ function mockUser(overrides: Partial<User>): User {
     adminNotes: null,
     limitOverrides: null,
     pausedUntil: null,
+    termsAcceptedAt: null,
+    privacyAcceptedAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     lastSignedIn: new Date(),
@@ -94,5 +101,42 @@ describe("resolveEffectivePlan", () => {
     expect(PLAN_DEFINITIONS.agency.featureIds.length).toBeGreaterThan(
       PLAN_DEFINITIONS.starter.featureIds.length
     );
+  });
+
+  it("expired paid plan is inactive", () => {
+    const user = mockUser({ planId: "pro", planStatus: "expired" });
+    const resolved = resolveEffectivePlan(user);
+    expect(resolved.isActive).toBe(false);
+  });
+});
+
+describe("assertSubscriptionActive", () => {
+  it("blocks inactive subscriptions", () => {
+    const user = mockUser({ planId: "pro", planStatus: "expired" });
+    expect(() => assertSubscriptionActive(user)).toThrow(TRPCError);
+    try {
+      assertSubscriptionActive(user);
+    } catch (err) {
+      expect((err as TRPCError).message).toBe(SUBSCRIPTION_INACTIVE_ERR_MSG);
+    }
+  });
+
+  it("allows active subscriptions", () => {
+    const user = mockUser({ planId: "pro", planStatus: "active" });
+    expect(() => assertSubscriptionActive(user)).not.toThrow();
+  });
+
+  it("admins bypass subscription check", () => {
+    const user = mockUser({ role: "admin", planId: "starter", planStatus: "expired" });
+    expect(() => assertSubscriptionActive(user)).not.toThrow();
+  });
+});
+
+describe("buildSubscriptionInfo hard paywall", () => {
+  it("returns empty features when subscription is inactive", async () => {
+    const user = mockUser({ planId: "pro", planStatus: "expired" });
+    const sub = await buildSubscriptionInfo(user);
+    expect(sub.isActive).toBe(false);
+    expect(sub.features).toEqual([]);
   });
 });

@@ -50,6 +50,44 @@ export function inferCategoryFromTitle(title: string): ProductCategory | undefin
   return bestScore > 0 ? best : undefined;
 }
 
+export type CategoryProviderPriority = {
+  providers: Array<"ebay" | "amazon" | "google_shopping" | "tiktok" | "free_retail" | "shoptera">;
+  seeds: string[];
+};
+
+export const CATEGORY_PROVIDER_ROUTING: Partial<Record<ProductCategory, CategoryProviderPriority>> = {
+  electronics: {
+    providers: ["ebay", "amazon", "google_shopping", "free_retail"],
+    seeds: ["phone accessories", "chargers", "earbuds"],
+  },
+  beauty: {
+    providers: ["tiktok", "google_shopping", "free_retail"],
+    seeds: ["serum", "mascara", "skincare tool"],
+  },
+  home: {
+    providers: ["google_shopping", "amazon", "ebay", "free_retail"],
+    seeds: ["kitchen gadget", "organizer", "led lights"],
+  },
+  fashion: {
+    providers: ["tiktok", "google_shopping", "free_retail"],
+    seeds: ["activewear", "loungewear"],
+  },
+  sports: {
+    providers: ["google_shopping", "ebay", "free_retail"],
+    seeds: ["yoga mat", "resistance bands"],
+  },
+  toys: {
+    providers: ["tiktok", "google_shopping", "free_retail"],
+    seeds: ["viral gadget", "gift", "trending tiktok"],
+  },
+};
+
+export function getCategoryProviderOrder(category?: string): string[] | undefined {
+  if (!category) return undefined;
+  const routing = CATEGORY_PROVIDER_ROUTING[category as ProductCategory];
+  return routing?.providers;
+}
+
 export function categoryMatchesFilter(
   itemCategory: string | undefined,
   title: string,

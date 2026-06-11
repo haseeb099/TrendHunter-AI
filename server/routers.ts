@@ -5,13 +5,13 @@ import {
   authenticatedProcedure,
   publicProcedure,
   router,
-  protectedProcedure,
   getCtxUser,
 } from "./_core/trpc";
 import {
   aiProcedure,
   featureProcedure,
   pipelineCreateProcedure,
+  protectedBase,
   searchProcedure,
   watchlistAddProcedure,
 } from "./_core/planMiddleware";
@@ -21,7 +21,7 @@ import { assertSearchQuota, buildSubscriptionInfo, createTrialFields } from "./p
 import { spendCredits } from "./credits";
 import { getTrendSignal } from "./intelligence/trends";
 import { getAdLibrarySnapshot } from "./intelligence/adLibrary";
-import { buildIntelligenceContext } from "./intelligence/summary";
+import { buildIntelligenceContext, gapItemConfidence, intelCoverageLevel } from "./intelligence/summary";
 import { resolveEffectivePlan } from "./plans";
 import {
   canSaveMoreKits,
@@ -36,6 +36,7 @@ import { getPlatformSettings } from "./planCatalog";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { nanoid } from "nanoid";
+import { createHash, randomBytes } from "node:crypto";
 import { hashPassword, verifyPassword } from "./_core/password";
 import { createSessionToken, setSessionCookie } from "./_core/session";
 import { normalizeEmail } from "./_core/normalizeEmail";
@@ -59,6 +60,8 @@ import {
   getChatMessages,
   addChatMessage,
   chatSessionBelongsToUser,
+  getChatSession,
+  updateChatSessionTitle,
   getProfitCalculations,
   saveProfitCalculation,
   deleteProfitCalculation,
@@ -74,13 +77,19 @@ import {
   deleteFilterPreset,
   countUserEvents,
   recordUserEvent,
+  logZeroResultSearch,
   getSavedSocialKits,
   getSavedSocialKitById,
   countSavedSocialKits,
   saveSocialKit,
   updateSocialKit,
   deleteSocialKit,
+  createPasswordResetToken,
+  getValidPasswordResetToken,
+  markPasswordResetTokenUsed,
+  invalidatePasswordResetTokensForUser,
 } from "./db";
+import { buildPasswordResetEmail, sendEmail } from "./notifications/email";
 import { invokeLLMOrThrow } from "./_core/aiHelpers";
 import { getSearchProviderStatus, searchProducts as runProductSearch } from "./search";
 import {
@@ -92,10 +101,16 @@ import {
   type RegionCode,
 } from "@shared/searchTypes";
 import { ENV } from "./_core/env";
+import { createLogger } from "./_core/logger";
 import { getSupportedRegionOptions } from "./search/regions";
 import { getTrendingFeed } from "./trending";
-import { getOffersForProduct, getOffersStatus } from "./suppliers";
+import { computeSupplierConfidenceTier, getOffersForProduct, getOffersStatus } from "./suppliers";
+import { getProductSnapshotDiff } from "./dataPlatform/snapshotDiff";
+import { computeNextMoves } from "./ranking/nextMoves";
 import { getStorageStatus, storageGet, storagePut } from "./storage";
+
+const authLog = createLogger("auth");
+const searchLog = createLogger("search");
 
 const regionCodeSchema = z.enum(["US", "UK", "EU", "GLOBAL"]);
 const shipFromSchema = z.enum(["US", "UK", "CN", "EU"]);
@@ -141,6 +156,13 @@ export const appRouter = router({
           email: z.string().email(),
           password: z.string().min(8, "Password must be at least 8 characters"),
           name: z.string().min(1).optional(),
+          acceptedTerms: z.literal(true, {
+            message: "You must accept the Terms of Service",
+          }),
+          acceptedPrivacy: z.literal(true, {
+            message: "You must accept the Privacy Policy",
+          }),
+          inviteCode: z.string().optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -151,6 +173,16 @@ export const appRouter = router({
             code: "FORBIDDEN",
             message: "New registrations are temporarily closed.",
           });
+        }
+
+        if (ENV.betaMode && ENV.betaInviteCode) {
+          if (input.inviteCode?.trim() !== ENV.betaInviteCode) {
+            authLog.warn("register_invalid_invite", { email: input.email });
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Invalid or missing beta invite code.",
+            });
+          }
         }
 
         const email = normalizeEmail(input.email);
@@ -169,6 +201,8 @@ export const appRouter = router({
           loginMethod: "local",
           role: "user",
           lastSignedIn: now,
+          termsAcceptedAt: now,
+          privacyAcceptedAt: now,
           ...(await createTrialFields(now)),
         });
 
@@ -178,6 +212,7 @@ export const appRouter = router({
 
         const token = await createSessionToken(user.openId, user.name ?? "");
         setSessionCookie(ctx.req, ctx.res, token);
+        authLog.info("register_success", { userId: user.id, email });
         return toPublicUser(user);
       }),
     login: publicProcedure
@@ -194,6 +229,7 @@ export const appRouter = router({
           throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid email or password" });
         }
         if (user.accountStatus === "deactivated") {
+          authLog.warn("login_deactivated", { userId: user.id });
           throw new TRPCError({
             code: "FORBIDDEN",
             message: "This account has been deactivated. Contact support.",
@@ -202,13 +238,77 @@ export const appRouter = router({
 
         const token = await createSessionToken(user.openId, user.name ?? "");
         setSessionCookie(ctx.req, ctx.res, token);
+        authLog.info("login_success", { userId: user.id });
         return toPublicUser(user);
       }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      authLog.info("logout", { userId: ctx.user?.id });
       return { success: true } as const;
     }),
+
+    forgotPassword: publicProcedure
+      .input(z.object({ email: z.string().email() }))
+      .mutation(async ({ ctx, input }) => {
+        const email = normalizeEmail(input.email);
+        const ip = getClientIp(ctx.req);
+        await assertRateLimit(`forgot-password:ip:${ip}`, 5, 15 * 60 * 1000);
+        await assertRateLimit(`forgot-password:email:${email}`, 3, 60 * 60 * 1000);
+
+        const user = await getUserByEmail(email);
+        if (user?.passwordHash && user.loginMethod === "local") {
+          const rawToken = randomBytes(32).toString("hex");
+          const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+          const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+
+          await invalidatePasswordResetTokensForUser(user.id);
+          await createPasswordResetToken({
+            userId: user.id,
+            tokenHash,
+            expiresAt,
+          });
+
+          const resetUrl = `${ENV.appUrl.replace(/\/$/, "")}/reset-password?token=${rawToken}`;
+          const { subject, html, text } = buildPasswordResetEmail(resetUrl);
+          await sendEmail({ to: email, subject, html, text });
+          authLog.info("password_reset_requested", { userId: user.id });
+
+          if (ENV.passwordResetTestMode) {
+            return { success: true as const, testResetToken: rawToken };
+          }
+        }
+
+        return { success: true as const };
+      }),
+
+    resetPassword: publicProcedure
+      .input(
+        z.object({
+          token: z.string().min(32),
+          newPassword: z.string().min(8, "Password must be at least 8 characters"),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const ip = getClientIp(ctx.req);
+        await assertRateLimit(`reset-password:ip:${ip}`, 10, 15 * 60 * 1000);
+
+        const tokenHash = createHash("sha256").update(input.token).digest("hex");
+        const row = await getValidPasswordResetToken(tokenHash);
+        if (!row) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Invalid or expired reset link. Request a new password reset.",
+          });
+        }
+
+        await updateUserProfile(row.userId, { passwordHash: hashPassword(input.newPassword) });
+        await markPasswordResetTokenUsed(row.id);
+        await invalidatePasswordResetTokensForUser(row.userId);
+        authLog.info("password_reset_complete", { userId: row.userId });
+
+        return { success: true as const };
+      }),
 
     updateProfile: authenticatedProcedure
       .input(z.object({ name: z.string().min(1).max(128) }))
@@ -241,15 +341,15 @@ export const appRouter = router({
 
   // Search & Discovery
   search: router({
-    getSavedSearches: protectedProcedure.query(({ ctx }) => getSavedSearches(getCtxUser(ctx).id)),
-    saveSearch: protectedProcedure
+    getSavedSearches: protectedBase.query(({ ctx }) => getSavedSearches(getCtxUser(ctx).id)),
+    saveSearch: protectedBase
       .input(z.object({ query: z.string(), filters: z.unknown().optional() }))
       .mutation(({ ctx, input }) => createSavedSearch(getCtxUser(ctx).id, input.query, input.filters)),
-    deleteSavedSearch: protectedProcedure
+    deleteSavedSearch: protectedBase
       .input(z.object({ id: z.number() }))
       .mutation(({ ctx, input }) => deleteSavedSearch(input.id, getCtxUser(ctx).id)),
-    getProviderStatus: protectedProcedure.query(() => getSearchProviderStatus()),
-    getFilterOptions: protectedProcedure.query(() => ({
+    getProviderStatus: protectedBase.query(async () => getSearchProviderStatus()),
+    getFilterOptions: protectedBase.query(() => ({
       regions: getSupportedRegionOptions(),
       categories: PRODUCT_CATEGORIES.map((c) => ({
         value: c,
@@ -261,13 +361,13 @@ export const appRouter = router({
       supportedRegions: ENV.supportedRegions,
       regionLabels: REGION_LABELS,
     })),
-    getFilterPresets: protectedProcedure.query(({ ctx }) => getFilterPresets(getCtxUser(ctx).id)),
+    getFilterPresets: protectedBase.query(({ ctx }) => getFilterPresets(getCtxUser(ctx).id)),
     saveFilterPreset: featureProcedure("filter_presets")
       .input(z.object({ name: z.string().min(1), filters: productHuntFiltersSchema }))
       .mutation(({ ctx, input }) =>
         saveFilterPreset(getCtxUser(ctx).id, input.name, (input.filters ?? {}) as ProductHuntFilters)
       ),
-    deleteFilterPreset: protectedProcedure
+    deleteFilterPreset: protectedBase
       .input(z.object({ id: z.number() }))
       .mutation(({ ctx, input }) => deleteFilterPreset(input.id, getCtxUser(ctx).id)),
     searchProducts: searchProcedure()
@@ -294,6 +394,15 @@ export const appRouter = router({
           { live: input.live }
         );
 
+        searchLog.info("Product search completed", {
+          userId: user.id,
+          query: input.query,
+          platform: input.platform,
+          live: Boolean(input.live),
+          resultCount: results.results.length,
+          isDemo: results.isDemo,
+        });
+
         if (input.live) {
           creditsUsed = await spendCredits(user, "live_search", {
             query: input.query,
@@ -307,6 +416,16 @@ export const appRouter = router({
           });
         }
 
+        if (results.results.length === 0) {
+          await logZeroResultSearch(user.id, {
+            query: input.query,
+            platform: input.platform,
+            region: input.filters?.region,
+            live: Boolean(input.live),
+            tab: "search",
+          });
+        }
+
         return { ...results, creditsUsed: results.creditsUsed ?? creditsUsed };
       }),
   }),
@@ -317,6 +436,7 @@ export const appRouter = router({
         z.object({
           region: regionCodeSchema.optional(),
           category: z.string().optional(),
+          filters: productHuntFiltersSchema,
         })
       )
       .query(async ({ ctx, input }) => {
@@ -325,6 +445,7 @@ export const appRouter = router({
         return getTrendingFeed({
           region: input.region as RegionCode | undefined,
           category: input.category,
+          filters: input.filters as ProductHuntFilters | undefined,
         });
       }),
     getRegions: publicProcedure.query(() => ({
@@ -342,14 +463,14 @@ export const appRouter = router({
   }),
 
   upload: router({
-    getStatus: protectedProcedure.query(() => getStorageStatus()),
-    getUrl: protectedProcedure
+    getStatus: protectedBase.query(() => getStorageStatus()),
+    getUrl: protectedBase
       .input(z.object({ key: z.string().min(1) }))
       .query(({ ctx, input }) => {
         assertUserOwnsUploadKey(getCtxUser(ctx).id, input.key);
         return storageGet(input.key);
       }),
-    uploadFile: protectedProcedure
+    uploadFile: protectedBase
       .input(
         z.object({
           filename: z.string().min(1).max(255),
@@ -373,7 +494,7 @@ export const appRouter = router({
 
   // Watchlist
   watchlist: router({
-    getWatchlist: protectedProcedure.query(({ ctx }) => getWatchlist(getCtxUser(ctx).id)),
+    getWatchlist: protectedBase.query(({ ctx }) => getWatchlist(getCtxUser(ctx).id)),
     addToWatchlist: watchlistAddProcedure()
       .input(
         z.object({
@@ -390,7 +511,7 @@ export const appRouter = router({
         })
       )
       .mutation(({ ctx, input }) => addToWatchlist({ userId: getCtxUser(ctx).id, ...input })),
-    removeFromWatchlist: protectedProcedure
+    removeFromWatchlist: protectedBase
       .input(z.object({ id: z.number() }))
       .mutation(({ ctx, input }) => removeFromWatchlist(input.id, getCtxUser(ctx).id)),
   }),
@@ -433,7 +554,8 @@ Provide a JSON response with:
 - supplierReliability (0-100): Typical supplier quality?
 - overallScore (0-100): Overall viability
 
-Also include brief reasoning for each score.`;
+Include dimensionReasoning with a brief explanation for each score field (trendScore, saturationScore, profitPotential, supplierReliability, overallScore).
+Also include reasoning as a one-sentence overall summary.`;
 
         const response = await invokeLLMOrThrow({
           messages: [{ role: "user", content: prompt }],
@@ -451,8 +573,34 @@ Also include brief reasoning for each score.`;
                   supplierReliability: { type: "number" },
                   overallScore: { type: "number" },
                   reasoning: { type: "string" },
+                  dimensionReasoning: {
+                    type: "object",
+                    properties: {
+                      trendScore: { type: "string" },
+                      saturationScore: { type: "string" },
+                      profitPotential: { type: "string" },
+                      supplierReliability: { type: "string" },
+                      overallScore: { type: "string" },
+                    },
+                    required: [
+                      "trendScore",
+                      "saturationScore",
+                      "profitPotential",
+                      "supplierReliability",
+                      "overallScore",
+                    ],
+                    additionalProperties: false,
+                  },
                 },
-                required: ["trendScore", "saturationScore", "profitPotential", "supplierReliability", "overallScore", "reasoning"],
+                required: [
+                  "trendScore",
+                  "saturationScore",
+                  "profitPotential",
+                  "supplierReliability",
+                  "overallScore",
+                  "reasoning",
+                  "dimensionReasoning",
+                ],
                 additionalProperties: false,
               },
             },
@@ -602,8 +750,8 @@ Provide competitive intelligence in JSON format:
 
   // Profit Calculator
   profit: router({
-    getProfitCalculations: protectedProcedure.query(({ ctx }) => getProfitCalculations(getCtxUser(ctx).id)),
-    calculateProfit: protectedProcedure
+    getProfitCalculations: protectedBase.query(({ ctx }) => getProfitCalculations(getCtxUser(ctx).id)),
+    calculateProfit: protectedBase
       .input(
         z.object({
           productTitle: z.string(),
@@ -632,15 +780,15 @@ Provide competitive intelligence in JSON format:
         await saveProfitCalculation(calc);
         return calc;
       }),
-    deleteProfitCalculation: protectedProcedure
+    deleteProfitCalculation: protectedBase
       .input(z.object({ id: z.number() }))
       .mutation(({ ctx, input }) => deleteProfitCalculation(input.id, getCtxUser(ctx).id)),
   }),
 
   // Supplier Vetting
   supplier: router({
-    getSuppliers: protectedProcedure.query(({ ctx }) => getSuppliers(getCtxUser(ctx).id)),
-    createSupplier: protectedProcedure
+    getSuppliers: protectedBase.query(({ ctx }) => getSuppliers(getCtxUser(ctx).id)),
+    createSupplier: protectedBase
       .input(
         z.object({
           name: z.string(),
@@ -657,7 +805,7 @@ Provide competitive intelligence in JSON format:
         })
       )
       .mutation(({ ctx, input }) => createSupplier({ userId: getCtxUser(ctx).id, ...input })),
-    updateSupplier: protectedProcedure
+    updateSupplier: protectedBase
       .input(
         z.object({
           id: z.number(),
@@ -680,10 +828,10 @@ Provide competitive intelligence in JSON format:
         })
       )
       .mutation(({ ctx, input }) => updateSupplier(input.id, getCtxUser(ctx).id, input.data)),
-    deleteSupplier: protectedProcedure
+    deleteSupplier: protectedBase
       .input(z.object({ id: z.number() }))
       .mutation(({ ctx, input }) => deleteSupplier(input.id, getCtxUser(ctx).id)),
-    vetSupplier: protectedProcedure
+    vetSupplier: protectedBase
       .input(z.object({ supplierId: z.number() }))
       .mutation(async ({ ctx, input }) => {
         await updateSupplier(input.supplierId, getCtxUser(ctx).id, {
@@ -708,7 +856,59 @@ Provide competitive intelligence in JSON format:
           region: input.region as RegionCode | undefined,
         })
       ),
-    getOffersStatus: protectedProcedure.query(() => getOffersStatus()),
+    getOffersStatus: protectedBase.query(() => getOffersStatus()),
+  }),
+
+  product: router({
+    getOffers: featureProcedure("supplier_offers")
+      .input(
+        z.object({
+          productId: z.string().optional(),
+          title: z.string().min(1),
+          region: regionCodeSchema.optional(),
+        })
+      )
+      .query(async ({ input }) => {
+        const response = await getOffersForProduct({
+          productId: input.productId,
+          title: input.title,
+          region: input.region as RegionCode | undefined,
+        });
+        return {
+          ...response,
+          confidenceTier: computeSupplierConfidenceTier(response.offers),
+        };
+      }),
+    getDelta: protectedBase
+      .input(
+        z.object({
+          canonicalProductId: z.string(),
+          region: regionCodeSchema,
+        })
+      )
+      .query(async ({ input }) => {
+        const diff = await getProductSnapshotDiff(
+          input.canonicalProductId,
+          input.region as RegionCode
+        );
+        if (!diff) return null;
+        return diff;
+      }),
+    getNextMoves: protectedBase
+      .input(z.object({ productId: z.string(), title: z.string() }))
+      .query(({ input }) => ({
+        moves: computeNextMoves({
+          id: input.productId,
+          title: input.title,
+          price: 0,
+          platform: "unknown",
+          image: null,
+          shippingDays: null,
+          supplier: null,
+          rating: null,
+          sourceUrl: null,
+        }),
+      })),
   }),
 
   // Social Media Kit
@@ -1128,7 +1328,7 @@ Return JSON with:
         });
       }),
 
-    getKitLimits: protectedProcedure.query(async ({ ctx }) => {
+    getKitLimits: protectedBase.query(async ({ ctx }) => {
       const user = getCtxUser(ctx);
       const plan = resolveEffectivePlan(user).effectivePlanId;
       const count = await countSavedSocialKits(user.id);
@@ -1142,7 +1342,7 @@ Return JSON with:
       };
     }),
 
-    listSavedKits: protectedProcedure.query(async ({ ctx }) => {
+    listSavedKits: protectedBase.query(async ({ ctx }) => {
       const rows = await getSavedSocialKits(getCtxUser(ctx).id);
       return rows.map((r) => ({
         id: r.id,
@@ -1156,7 +1356,7 @@ Return JSON with:
       }));
     }),
 
-    getSavedKit: protectedProcedure
+    getSavedKit: protectedBase
       .input(z.object({ id: z.number() }))
       .query(async ({ ctx, input }) => {
         const row = await getSavedSocialKitById(input.id, getCtxUser(ctx).id);
@@ -1303,13 +1503,36 @@ Return as JSON with gaps array, each containing: title, opportunity, demand_leve
         const content = response.choices[0]?.message.content;
         if (!content || typeof content !== "string") throw new Error("No response from LLM");
         await recordUserEvent(getCtxUser(ctx).id, "ai_call", { feature: "marketgap" });
-        return JSON.parse(content);
+        const parsed = JSON.parse(content) as {
+          gaps: Array<{
+            title: string;
+            opportunity: string;
+            demand_level: string;
+            competition_level: string;
+            estimated_margin: string;
+          }>;
+        };
+        const coverage = intelCoverageLevel(trend, ads);
+        return {
+          gaps: parsed.gaps.map((gap) => ({
+            ...gap,
+            confidence: gapItemConfidence(gap.demand_level, gap.competition_level, coverage),
+          })),
+          intelContext: {
+            trendFetchedAt: trend?.fetchedAt ?? null,
+            adsFetchedAt: ads?.fetchedAt ?? null,
+            trendStale: trend?.stale ?? false,
+            adsStale: ads?.stale ?? false,
+            coverage,
+            summary: intelContext,
+          },
+        };
       }),
   }),
 
   // Pipeline Tracker
   pipeline: router({
-    getPipelineItems: protectedProcedure.query(({ ctx }) => getPipelineItems(getCtxUser(ctx).id)),
+    getPipelineItems: protectedBase.query(({ ctx }) => getPipelineItems(getCtxUser(ctx).id)),
     createPipelineItem: pipelineCreateProcedure()
       .input(
         z.object({
@@ -1330,34 +1553,38 @@ Return as JSON with gaps array, each containing: title, opportunity, demand_leve
         })
       )
       .mutation(({ ctx, input }) => createPipelineItem({ userId: getCtxUser(ctx).id, ...input })),
-    updatePipelineItem: protectedProcedure
+    updatePipelineItem: protectedBase
       .input(z.object({ id: z.number(), stage: z.enum(["testing", "scaling", "paused", "dropped"]).optional(), notes: z.string().optional() }))
       .mutation(({ ctx, input }) => updatePipelineItem(input.id, getCtxUser(ctx).id, { stage: input.stage, notes: input.notes })),
-    deletePipelineItem: protectedProcedure
+    deletePipelineItem: protectedBase
       .input(z.object({ id: z.number() }))
       .mutation(({ ctx, input }) => deletePipelineItem(input.id, getCtxUser(ctx).id)),
   }),
 
   // AI Agent Chat
   agent: router({
-    getChatSessions: protectedProcedure.query(({ ctx }) => getChatSessions(getCtxUser(ctx).id)),
-    createChatSession: protectedProcedure
+    getChatSessions: protectedBase.query(({ ctx }) => getChatSessions(getCtxUser(ctx).id)),
+    createChatSession: protectedBase
       .input(z.object({ title: z.string().optional() }))
       .mutation(({ ctx, input }) => createChatSession(getCtxUser(ctx).id, input.title)),
-    deleteChatSession: protectedProcedure
+    deleteChatSession: protectedBase
       .input(z.object({ sessionId: z.number() }))
       .mutation(({ ctx, input }) => deleteChatSession(input.sessionId, getCtxUser(ctx).id)),
-    getChatMessages: protectedProcedure
+    getChatMessages: protectedBase
       .input(z.object({ sessionId: z.number() }))
       .query(({ ctx, input }) => getChatMessages(input.sessionId, getCtxUser(ctx).id)),
     sendMessage: aiProcedure("agent")
       .input(z.object({ sessionId: z.number(), content: z.string() }))
       .mutation(async ({ ctx, input }) => {
-        const userId = getCtxUser(ctx).id;
+        const user = getCtxUser(ctx);
+        const userId = user.id;
         const owned = await chatSessionBelongsToUser(input.sessionId, userId);
         if (!owned) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Chat session not found" });
         }
+
+        const session = await getChatSession(input.sessionId, userId);
+        const isFirstMessage = session?.title === "New Chat";
 
         await addChatMessage({
           sessionId: input.sessionId,
@@ -1366,26 +1593,22 @@ Return as JSON with gaps array, each containing: title, opportunity, demand_leve
           content: input.content,
         });
 
+        if (isFirstMessage) {
+          const { generateSessionTitle } = await import("./agent/runAgent");
+          const title = await generateSessionTitle(input.content);
+          await updateChatSessionTitle(input.sessionId, userId, title);
+        }
+
         const messages = await getChatMessages(input.sessionId, userId);
         const conversationHistory = messages.map((m) => ({
           role: m.role as "user" | "assistant" | "system",
           content: m.content,
         }));
 
-        // Generate AI response
-        const systemPrompt = `You are DropHunter AI, an expert product research and sourcing advisor for dropshippers. 
-Help users find winning products, validate opportunities, spy on competitors, and launch marketing campaigns.
-Provide actionable insights, data-driven recommendations, and strategic guidance.
-Be concise but thorough. Ask clarifying questions when needed.`;
+        const { runAgentConversation } = await import("./agent/runAgent");
+        const { message: assistantMessage, totalTokens, toolCallsUsed } =
+          await runAgentConversation(user, conversationHistory);
 
-        const response = await invokeLLMOrThrow({
-          messages: [{ role: "system", content: systemPrompt }, ...conversationHistory],
-        });
-
-        const content = response.choices[0]?.message.content;
-        const assistantMessage = typeof content === "string" ? content : "I couldn't generate a response. Please try again.";
-
-        // Add assistant message
         await addChatMessage({
           sessionId: input.sessionId,
           userId,
@@ -1393,14 +1616,52 @@ Be concise but thorough. Ask clarifying questions when needed.`;
           content: assistantMessage,
         });
 
-        await recordUserEvent(userId, "ai_call", { feature: "agent" });
-        return { message: assistantMessage };
+        await recordUserEvent(userId, "ai_call", {
+          feature: "agent",
+          tokens: totalTokens,
+          toolCalls: toolCallsUsed,
+        });
+
+        return {
+          message: assistantMessage,
+          sessionTitle: isFirstMessage ? await getChatSession(input.sessionId, userId).then((s) => s?.title) : undefined,
+          tokensUsed: totalTokens,
+        };
+      }),
+    searchProductsTool: searchProcedure()
+      .input(
+        z.object({
+          query: z.string().min(1),
+          platform: z.enum(["all", "ebay", "amazon", "shopify", "tiktok"]).default("all"),
+          region: regionCodeSchema.optional(),
+        })
+      )
+      .query(async ({ input }) => {
+        const { computeNextMoves } = await import("./ranking/nextMoves");
+        const results = await runProductSearch(input.query, input.platform, {
+          region: input.region,
+        });
+        return {
+          query: input.query,
+          resultCount: results.results.length,
+          products: results.results.slice(0, 5).map((p) => ({
+            title: p.title,
+            price: p.price,
+            platform: p.platform,
+            trendScore: p.trendScore,
+            rankReason: p.rankReason,
+            rankingExplanation: p.rankingExplanation,
+            nextMoves: computeNextMoves(p),
+            canonicalProductId: p.canonicalProductId,
+            sourceProvider: p.sourceProvider,
+          })),
+        };
       }),
   }),
 
   // Analytics
   analytics: router({
-    recordDiscoverView: protectedProcedure
+    recordDiscoverView: protectedBase
       .input(
         z.object({
           region: z.string().optional(),
@@ -1412,6 +1673,23 @@ Be concise but thorough. Ask clarifying questions when needed.`;
           region: input.region,
           category: input.category,
         })
+      ),
+    recordProductEvent: protectedBase
+      .input(
+        z.object({
+          eventType: z.enum([
+            "product_impression",
+            "product_click",
+            "drawer_open",
+            "watchlist_save",
+            "pipeline_add",
+            "ranking_explain_open",
+          ]),
+          metadata: z.record(z.string(), z.unknown()).optional(),
+        })
+      )
+      .mutation(({ ctx, input }) =>
+        recordUserEvent(getCtxUser(ctx).id, input.eventType, input.metadata ?? {})
       ),
     getDashboardMetrics: featureProcedure("analytics").query(async ({ ctx }) => {
       const user = getCtxUser(ctx);
@@ -1461,6 +1739,19 @@ Be concise but thorough. Ask clarifying questions when needed.`;
         : [];
 
       const discoverViews = hasAdvanced ? await countUserEvents(user.id, "discover_view") : 0;
+      const impressions = hasAdvanced ? await countUserEvents(user.id, "product_impression") : 0;
+      const clicks = hasAdvanced ? await countUserEvents(user.id, "product_click") : 0;
+      const saves = hasAdvanced ? await countUserEvents(user.id, "watchlist_save") : 0;
+      const discoveryFunnel = hasAdvanced
+        ? {
+            impressions,
+            clicks,
+            saves,
+            pipelineAdds: await countUserEvents(user.id, "pipeline_add"),
+            ctr: impressions > 0 ? Math.round((clicks / impressions) * 100) : 0,
+            saveRate: clicks > 0 ? Math.round((saves / clicks) * 100) : 0,
+          }
+        : null;
       const searchToPipeline = hasAdvanced ? pipeline.filter((p) => p.sourceUrl).length : 0;
       const validateToPipeline = hasAdvanced
         ? pipeline.filter((p) => p.validationScore != null).length
@@ -1471,6 +1762,7 @@ Be concise but thorough. Ask clarifying questions when needed.`;
         hasAdvancedAnalytics: hasAdvanced,
         totalWatchlistItems: watchlist.length,
         discoverViews,
+        discoveryFunnel,
         searchToPipeline,
         validateToPipeline,
         withLandedCost,

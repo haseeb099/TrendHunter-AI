@@ -1,9 +1,15 @@
 import type { ProductSearchResult, RegionCode } from "@shared/searchTypes";
 import { ENV } from "../_core/env";
 import { resolveRegion } from "./regions";
+import { isJustSerpConfigured, searchGoogleShoppingJustSerp } from "./justserp";
 
 export function isSerpApiConfigured() {
   return Boolean(ENV.serpApiKey);
+}
+
+/** True when SerpAPI or Just Serp can serve Google Shopping / Trends. */
+export function isSerpConfigured() {
+  return isSerpApiConfigured() || isJustSerpConfigured();
 }
 
 async function serpFetch(params: Record<string, string>) {
@@ -61,12 +67,10 @@ export async function searchAmazon(
   }));
 }
 
-export async function searchGoogleShopping(
+async function searchGoogleShoppingSerpApi(
   query: string,
   region?: RegionCode
 ): Promise<ProductSearchResult[]> {
-  if (!isSerpApiConfigured()) return [];
-
   const mapping = resolveRegion(region);
 
   const data = (await serpFetch({
@@ -102,6 +106,36 @@ export async function searchGoogleShopping(
     region,
     shipFrom: mapping.defaultShipFrom,
   }));
+}
+
+export async function searchGoogleShopping(
+  query: string,
+  region?: RegionCode
+): Promise<ProductSearchResult[]> {
+  if (isSerpApiConfigured()) {
+    try {
+      const results = await searchGoogleShoppingSerpApi(query, region);
+      if (results.length > 0) return results;
+    } catch (err) {
+      console.warn(
+        "[Search] SerpAPI Google Shopping failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
+  if (isJustSerpConfigured()) {
+    try {
+      return await searchGoogleShoppingJustSerp(query, region);
+    } catch (err) {
+      console.warn(
+        "[Search] Just Serp Google Shopping failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
+  return [];
 }
 
 function parsePrice(value?: string): number {

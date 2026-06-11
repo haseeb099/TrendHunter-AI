@@ -1,6 +1,9 @@
 import { TRPCError } from "@trpc/server";
 import { isAiConfigured } from "./env";
 import { invokeLLM, type InvokeParams, type InvokeResult } from "./llm";
+import { createLogger } from "./logger";
+
+const log = createLogger("ai");
 
 export function assertAiConfigured() {
   if (!isAiConfigured()) {
@@ -13,7 +16,20 @@ export function assertAiConfigured() {
 
 export async function invokeLLMOrThrow(params: InvokeParams): Promise<InvokeResult> {
   assertAiConfigured();
-  return invokeLLM(params);
+  log.info("llm_invoke", {
+    messageCount: params.messages.length,
+    hasTools: Boolean(params.tools?.length),
+  });
+  try {
+    const result = await invokeLLM(params);
+    log.info("llm_success", { model: result.model });
+    return result;
+  } catch (err) {
+    log.error("llm_failed", {
+      error: err instanceof Error ? err.message : "unknown",
+    });
+    throw err;
+  }
 }
 
 export function getAiStatus() {

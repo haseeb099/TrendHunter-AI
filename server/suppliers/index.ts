@@ -1,4 +1,4 @@
-import type { ProductOffer, RegionCode } from "@shared/searchTypes";
+import type { ProductOffer, ProductOffersResponse, RegionCode } from "@shared/searchTypes";
 import { isCjApiConfigured, searchCjOffers } from "./cj";
 import { isAliExpressApiConfigured, searchAliExpressOffers } from "./aliexpress";
 import { cacheProductOffers, getCachedProductOffers } from "../db";
@@ -6,20 +6,35 @@ import { ENV } from "../_core/env";
 
 const OFFERS_CACHE_TTL_MS = ENV.offersCacheTtlHours * 60 * 60 * 1000;
 
+export type SupplierConfidenceTier = "high" | "medium" | "low";
+
 export type OffersStatus = {
-  cj: { configured: boolean; mode: "live" | "demo" };
-  aliexpress: { configured: boolean; mode: "live" | "demo" };
+  cj: { configured: boolean; mode: "live" | "off" };
+  aliexpress: { configured: boolean; mode: "live" | "off" };
 };
+
+export function computeSupplierConfidenceTier(
+  offers: ProductOffer[]
+): SupplierConfidenceTier {
+  if (offers.length === 0) return "low";
+  const suppliers = new Set(offers.map((o) => o.supplierPlatform));
+  const bestShip = Math.min(
+    ...offers.map((o) => o.shippingDaysMax ?? o.shippingDaysMin ?? 30)
+  );
+  if (suppliers.size >= 2 && bestShip < 10) return "high";
+  if (offers.length >= 1) return "medium";
+  return "low";
+}
 
 export function getOffersStatus(): OffersStatus {
   return {
     cj: {
       configured: isCjApiConfigured(),
-      mode: isCjApiConfigured() ? "live" : "demo",
+      mode: isCjApiConfigured() ? "live" : "off",
     },
     aliexpress: {
       configured: isAliExpressApiConfigured(),
-      mode: isAliExpressApiConfigured() ? "live" : "demo",
+      mode: isAliExpressApiConfigured() ? "live" : "off",
     },
   };
 }
@@ -29,8 +44,10 @@ export async function getOffersForProduct(options: {
   title: string;
   region?: RegionCode;
   forceRefresh?: boolean;
-}): Promise<ProductOffer[]> {
+}): Promise<ProductOffersResponse> {
   const { productId, title, region, forceRefresh } = options;
+  const status = getOffersStatus();
+  const suppliersConfigured = status.cj.configured || status.aliexpress.configured;
 
   if (!forceRefresh) {
     const cached = await getCachedProductOffers({
@@ -38,9 +55,18 @@ export async function getOffersForProduct(options: {
       title,
       maxAgeMs: OFFERS_CACHE_TTL_MS,
     });
-    if (cached.length > 0) {
-      return cached.sort((a, b) => a.landedCost - b.landedCost);
+    if (cached.offers.length > 0) {
+      return {
+        offers: cached.offers.sort((a, b) => a.landedCost - b.landedCost),
+        dataMode: "cached",
+        cachedAt: cached.fetchedAt ?? undefined,
+        stale: cached.stale,
+      };
     }
+  }
+
+  if (!suppliersConfigured) {
+    return { offers: [], dataMode: "cached", stale: false };
   }
 
   const [cjResult, aeResult] = await Promise.all([
@@ -57,6 +83,8 @@ export async function getOffersForProduct(options: {
     productId: productId ?? offer.productId,
     productTitle: offer.productTitle || title,
   }));
+
+  const fetchedAt = new Date().toISOString();
 
   if (offers.length > 0) {
     await cacheProductOffers(
@@ -79,5 +107,10 @@ export async function getOffersForProduct(options: {
     );
   }
 
-  return offers.sort((a, b) => a.landedCost - b.landedCost);
+  return {
+    offers: offers.sort((a, b) => a.landedCost - b.landedCost),
+    dataMode: "live",
+    cachedAt: fetchedAt,
+    stale: false,
+  };
 }

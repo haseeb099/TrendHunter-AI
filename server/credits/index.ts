@@ -10,8 +10,7 @@ import { TRPCError } from "@trpc/server";
 import { eq, and, gte, sql, desc } from "drizzle-orm";
 import { creditTransactions, userCredits } from "../../drizzle/schema";
 import { getDb } from "../db";
-import { isAdmin } from "../plans";
-import { resolveEffectivePlan } from "../plans";
+import { assertSubscriptionActive, isAdmin, resolveEffectivePlan } from "../plans";
 
 function startOfMonth(): Date {
   const now = new Date();
@@ -85,42 +84,55 @@ async function ensureWallet(user: User, allowance: number) {
   }
 }
 
+function fallbackWallet(user: User, allowance: number) {
+  return {
+    balance: isAdmin(user) ? 999999 : allowance,
+    monthlyAllowance: isAdmin(user) ? -1 : allowance,
+    remaining: isAdmin(user) ? null : allowance,
+  };
+}
+
 export async function getCreditWallet(user: User) {
   const { effectivePlanId } = resolveEffectivePlan(user);
   const allowance = monthlyCreditAllowance(effectivePlanId);
 
   if (!isAdmin(user)) {
-    await ensureWallet(user, allowance);
+    try {
+      await ensureWallet(user, allowance);
+    } catch (err) {
+      console.warn("[Credits] ensureWallet failed:", err);
+    }
   }
 
   const db = await getDb();
   if (!db) {
-    return {
-      balance: isAdmin(user) ? 999999 : allowance,
-      monthlyAllowance: isAdmin(user) ? -1 : allowance,
-      remaining: isAdmin(user) ? null : allowance,
-    };
+    return fallbackWallet(user, allowance);
   }
 
   if (isAdmin(user)) {
     return { balance: 999999, monthlyAllowance: -1, remaining: null };
   }
 
-  const rows = await db
-    .select()
-    .from(userCredits)
-    .where(eq(userCredits.userId, user.id))
-    .limit(1);
+  try {
+    const rows = await db
+      .select()
+      .from(userCredits)
+      .where(eq(userCredits.userId, user.id))
+      .limit(1);
 
-  const wallet = rows[0];
-  const balance = wallet?.balance ?? allowance;
-  const monthlyAllowance = wallet?.monthlyAllowance ?? allowance;
+    const wallet = rows[0];
+    const balance = wallet?.balance ?? allowance;
+    const monthlyAllowance = wallet?.monthlyAllowance ?? allowance;
 
-  return {
-    balance,
-    monthlyAllowance,
-    remaining: isUnlimitedCredits(monthlyAllowance) ? null : balance,
-  };
+    return {
+      balance,
+      monthlyAllowance,
+      remaining: isUnlimitedCredits(monthlyAllowance) ? null : balance,
+    };
+  } catch (err) {
+    console.warn("[Credits] wallet read failed:", err);
+    return fallbackWallet(user, allowance);
+  }
 }
 
 export async function countCreditsSpentThisMonth(userId: number): Promise<number> {
@@ -177,6 +189,8 @@ export async function spendCredits(
   metadata?: Record<string, unknown>
 ): Promise<number> {
   if (isAdmin(user)) return 0;
+
+  assertSubscriptionActive(user);
 
   const cost = creditCost(action);
   if (cost === 0) return 0;

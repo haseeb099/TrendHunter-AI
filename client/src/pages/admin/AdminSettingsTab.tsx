@@ -16,7 +16,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
-import { Bell, Brain, CreditCard, Mail, Save, Settings2, Wrench } from "lucide-react";
+import { Bell, Brain, CreditCard, Mail, Save, Settings2, Shield, Wrench } from "lucide-react";
 import { toast } from "sonner";
 
 export default function AdminSettingsTab() {
@@ -32,6 +32,7 @@ export default function AdminSettingsTab() {
   const [supportEmail, setSupportEmail] = useState("");
   const [aiFeaturesEnabled, setAiFeaturesEnabled] = useState(true);
   const [selfServeBilling, setSelfServeBilling] = useState(false);
+  const [googleLoginEnabled, setGoogleLoginEnabled] = useState(false);
 
   useEffect(() => {
     if (!settingsQuery.data) return;
@@ -45,6 +46,7 @@ export default function AdminSettingsTab() {
     setSupportEmail(s.support_email);
     setAiFeaturesEnabled(s.ai_features_enabled);
     setSelfServeBilling(s.self_serve_billing);
+    setGoogleLoginEnabled(s.google_login_enabled);
   }, [settingsQuery.data]);
 
   const updateSettings = trpc.admin.updateSettings.useMutation({
@@ -67,6 +69,7 @@ export default function AdminSettingsTab() {
       support_email: supportEmail,
       ai_features_enabled: aiFeaturesEnabled,
       self_serve_billing: selfServeBilling,
+      google_login_enabled: googleLoginEnabled,
     });
 
   if (settingsQuery.isLoading) return <AdminLoading label="Loading platform settings…" />;
@@ -141,6 +144,19 @@ export default function AdminSettingsTab() {
             </p>
           </div>
           <Switch checked={selfServeBilling} onCheckedChange={setSelfServeBilling} />
+        </label>
+
+        <label className="admin-toggle-row">
+          <div>
+            <p className="text-sm font-medium flex items-center gap-2">
+              <Shield className="w-4 h-4" />
+              Google sign-in
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Show Google button on login/register. Requires GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in env.
+            </p>
+          </div>
+          <Switch checked={googleLoginEnabled} onCheckedChange={setGoogleLoginEnabled} />
         </label>
       </div>
 

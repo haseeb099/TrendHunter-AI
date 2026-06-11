@@ -1,4 +1,5 @@
 import "dotenv/config";
+import * as Sentry from "@sentry/node";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
@@ -8,11 +9,25 @@ import { createContext } from "./context";
 import { registerStorageRoutes } from "./storageRoutes";
 import { serveStatic, setupVite } from "./vite";
 import { ENV } from "./env";
+import { runMigrationsOnStartup } from "./migrate";
 import { validateEnvOnStartup } from "./validateEnv";
 import { registerStripeRoutes } from "../stripeRoutes";
+import { registerOAuthRoutes } from "./oauthRoutes";
 import { registerIngestRoutes } from "./ingestRoutes";
 import { expireStaleTrials } from "../plans";
 import { buildSitemapXml } from "../seo/sitemap";
+import { createLogger } from "./logger";
+
+const log = createLogger("server");
+
+if (ENV.sentryDsn) {
+  Sentry.init({
+    dsn: ENV.sentryDsn,
+    environment: process.env.NODE_ENV ?? "development",
+    tracesSampleRate: ENV.isProduction ? 0.1 : 1.0,
+  });
+  log.info("Sentry initialized");
+}
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -35,11 +50,30 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 
 async function startServer() {
   validateEnvOnStartup();
-  expireStaleTrials().catch((err) => console.warn("[Plans] expireStaleTrials failed:", err));
+
+  if (ENV.databaseUrl) {
+    try {
+      await runMigrationsOnStartup();
+      if (!ENV.isProduction) {
+        log.info("Migrations up to date");
+      }
+    } catch (err) {
+      log.error("Migration failed — session and billing may break until you run db:migrate", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  expireStaleTrials().catch((err) => log.warn("expireStaleTrials failed", { error: String(err) }));
+  const TRIAL_EXPIRY_INTERVAL_MS = 24 * 60 * 60 * 1000;
+  setInterval(() => {
+    expireStaleTrials().catch((err) => log.warn("expireStaleTrials failed", { error: String(err) }));
+  }, TRIAL_EXPIRY_INTERVAL_MS);
 
   const app = express();
   const server = createServer(app);
   registerStripeRoutes(app);
+  registerOAuthRoutes(app);
   // 8mb supports ~5mb file uploads via base64 in tRPC (routers uploadFile cap)
   app.use(express.json({ limit: "8mb" }));
   registerIngestRoutes(app);
@@ -52,7 +86,7 @@ async function startServer() {
       res.setHeader("Cache-Control", "public, max-age=3600");
       res.send(xml);
     } catch (err) {
-      console.error("[Sitemap]", err);
+      log.error("Sitemap generation failed", { error: err instanceof Error ? err.message : String(err) });
       res.status(500).send("Sitemap unavailable");
     }
   });
@@ -69,16 +103,24 @@ async function startServer() {
     serveStatic(app);
   }
 
+  if (ENV.sentryDsn) {
+    Sentry.setupExpressErrorHandler(app);
+  }
+
   const preferredPort = ENV.port;
   const port = await findAvailablePort(preferredPort);
 
   if (port !== preferredPort) {
-    console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
+    log.warn(`Port ${preferredPort} busy, using ${port}`);
   }
 
   server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}/`);
+    log.info("Server listening", { port, url: `http://localhost:${port}/` });
   });
 }
 
-startServer().catch(console.error);
+startServer().catch((err) => {
+  log.error("Server failed to start", { error: err instanceof Error ? err.message : String(err) });
+  if (ENV.sentryDsn) Sentry.captureException(err);
+  console.error(err);
+});
