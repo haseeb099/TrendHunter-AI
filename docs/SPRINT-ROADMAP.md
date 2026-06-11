@@ -33,7 +33,7 @@ Phased delivery plan for production hardening. Each sprint is independently ship
 | **S24** | Ingest ops APIs | Done |
 | **S25** | Agent search tool integration | Done |
 
-> **Note:** [`PROJECT-AUDIT-AND-ROADMAP.md`](./PROJECT-AUDIT-AND-ROADMAP.md) Phase C sprints **S16–S18** (MRR dashboard, agent polish, Google OAuth) are a **parallel Business track** renamed **S16B–S18B** to avoid collision with Research Engine S16–S25.
+> **Parallel Business track:** Admin MRR, agent polish, and Google OAuth from [`PROJECT-AUDIT-AND-ROADMAP.md`](./PROJECT-AUDIT-AND-ROADMAP.md) Phase C are renamed **S16B–S18B** to avoid collision with the Research Engine sprints above.
 
 ---
 
