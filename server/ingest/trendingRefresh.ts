@@ -14,7 +14,7 @@ import { dedupeResults } from "../search/utils";
 
 import { fuseProductTrendScores } from "./signalFusion";
 import { enrichTrendingResults } from "../trending/rankReason";
-import { mergeSearchResults, persistListings } from "../dataPlatform/productGraph";
+import { mergeSearchResults } from "../dataPlatform/productGraph";
 
 
 
@@ -69,7 +69,6 @@ async function buildTrendingForRegion(region: RegionCode, category?: string) {
 
 
   const merged = mergeSearchResults(dedupeResults(allResults));
-  await persistListings(merged, region);
   const deduped = applyProductHuntFilters(merged, filters);
 
   const fused = await fuseProductTrendScores(deduped, region, { forceTrending: true });

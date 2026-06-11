@@ -1,13 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  buildListingId,
   inferPriceBand,
   jaccardSimilarity,
   mergeSearchResults,
   normalizeTitle,
+  persistListings,
   pricesWithinTolerance,
   tokenizeTitle,
 } from "./productGraph";
 import type { ProductSearchResult } from "@shared/searchTypes";
+import * as dbModule from "../db";
+
+vi.mock("../db", () => ({
+  getDb: vi.fn(),
+}));
 
 function makeProduct(
   overrides: Partial<ProductSearchResult> & { id: string; title: string; platform: string }
@@ -97,5 +104,55 @@ describe("productGraph", () => {
     const merged = mergeSearchResults(products);
     expect(merged[0]?.sourceProvider).toBe("ebay");
     expect(merged[0]?.listingFetchedAt).toBeTruthy();
+  });
+
+  describe("buildListingId", () => {
+    const canonicalId = "a".repeat(36);
+
+    it("returns a stable 36-char id for the same inputs", () => {
+      const first = buildListingId(canonicalId, "ebay", "item-123");
+      const second = buildListingId(canonicalId, "ebay", "item-123");
+      expect(first).toBe(second);
+      expect(first).toHaveLength(36);
+    });
+
+    it("returns different ids for different platform or externalId", () => {
+      const ebay = buildListingId(canonicalId, "ebay", "item-123");
+      const amazon = buildListingId(canonicalId, "amazon", "item-123");
+      const other = buildListingId(canonicalId, "ebay", "item-456");
+      expect(ebay).not.toBe(amazon);
+      expect(ebay).not.toBe(other);
+    });
+  });
+
+  describe("persistListings", () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it("can be called twice without throwing", async () => {
+      const insertMock = vi.fn(() => ({
+        values: vi.fn(() => ({
+          onDuplicateKeyUpdate: vi.fn(async () => undefined),
+        })),
+      }));
+
+      vi.mocked(dbModule.getDb).mockResolvedValue({ insert: insertMock } as never);
+
+      const products = [
+        makeProduct({
+          id: "ext-1",
+          title: "Wireless Earbuds Pro",
+          platform: "ebay",
+          price: 19.99,
+          canonicalProductId: "canonical-uuid-0001",
+        }),
+      ];
+
+      await persistListings(products, "US");
+      await persistListings(products, "US");
+
+      expect(insertMock).toHaveBeenCalledTimes(4);
+    });
   });
 });

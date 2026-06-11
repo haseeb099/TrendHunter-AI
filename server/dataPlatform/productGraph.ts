@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { and, eq, gte, lte } from "drizzle-orm";
 import { canonicalProducts, productListings } from "../../drizzle/schema";
 import type {
@@ -57,6 +57,16 @@ export function inferPriceBand(price: number): PriceBand {
 export function pricesWithinTolerance(a: number, b: number, tolerance = PRICE_TOLERANCE): boolean {
   if (a <= 0 || b <= 0) return false;
   return Math.abs(a - b) / Math.max(a, b) <= tolerance;
+}
+
+/** Deterministic 36-char listing id — avoids collisions from truncating concatenated strings. */
+export function buildListingId(
+  canonicalId: string,
+  platform: string,
+  externalId: string
+): string {
+  const input = `${canonicalId}:${platform}:${externalId}`;
+  return createHash("sha256").update(input).digest("hex").slice(0, 36);
 }
 
 /** @alias pricesWithinTolerance */
@@ -177,47 +187,49 @@ export async function persistListings(
     const category = product.category ?? inferCategoryFromTitle(product.title);
     const band = inferPriceBand(product.price);
 
-    const existing = await db
-      .select()
-      .from(canonicalProducts)
-      .where(eq(canonicalProducts.id, canonicalId))
-      .limit(1);
-
-    if (existing.length === 0) {
-      await db.insert(canonicalProducts).values({
+    await db
+      .insert(canonicalProducts)
+      .values({
         id: canonicalId,
         normalizedTitle: normalized,
         category: category ?? null,
         priceBand: band,
         primaryImageUrl: product.image,
         listingCount: 1,
-      });
-    } else {
-      await db
-        .update(canonicalProducts)
-        .set({
+      })
+      .onDuplicateKeyUpdate({
+        set: {
           lastSeenAt: new Date(),
-          listingCount: (existing[0]?.listingCount ?? 1) + 1,
-          primaryImageUrl: product.image ?? existing[0]?.primaryImageUrl,
-        })
-        .where(eq(canonicalProducts.id, canonicalId));
-    }
+          ...(product.image ? { primaryImageUrl: product.image } : {}),
+        },
+      });
 
-    const listingId = `${canonicalId}:${product.platform}:${product.id}`.slice(0, 36);
-    await db.insert(productListings).values({
-      id: listingId,
-      canonicalProductId: canonicalId,
-      platform: product.platform,
-      externalId: product.id,
-      title: product.title,
-      price: product.price,
-      currency: product.currency ?? "USD",
-      region,
-      sourceProvider: product.sourceProvider ?? product.platform,
-      sourceUrl: product.sourceUrl,
-      fetchedAt: new Date(),
-      payload: product,
-    });
+    const listingId = buildListingId(canonicalId, product.platform, product.id);
+    const fetchedAt = new Date();
+    await db
+      .insert(productListings)
+      .values({
+        id: listingId,
+        canonicalProductId: canonicalId,
+        platform: product.platform,
+        externalId: product.id,
+        title: product.title,
+        price: product.price,
+        currency: product.currency ?? "USD",
+        region,
+        sourceProvider: product.sourceProvider ?? product.platform,
+        sourceUrl: product.sourceUrl,
+        fetchedAt,
+        payload: product,
+      })
+      .onDuplicateKeyUpdate({
+        set: {
+          price: product.price,
+          fetchedAt,
+          payload: product,
+          title: product.title,
+        },
+      });
   }
 }
 
