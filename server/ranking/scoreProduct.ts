@@ -151,18 +151,49 @@ function competitionScore(listingCount?: number): number {
   return 30;
 }
 
+const PRESSURE_SIGNAL_NAMES = [
+  "Meta ad saturation",
+  "Competition intensity",
+  "TikTok creative pressure",
+] as const;
+
 function buildExplanation(
   signals: Array<{ name: string; score: number; weight: number }>,
   confidence: RankingExplanation["confidence"],
   staleFeatures?: boolean
 ): RankingExplanation {
-  const topSignals = signals
-    .map((s) => ({
-      ...s,
-      contribution: Math.round(s.score * s.weight * 10) / 10,
-    }))
-    .sort((a, b) => b.contribution - a.contribution)
-    .slice(0, 4);
+  const withContribution = signals.map((s) => ({
+    ...s,
+    contribution: Math.round(s.score * s.weight * 10) / 10,
+  }));
+  const byContribution = [...withContribution].sort((a, b) => b.contribution - a.contribution);
+  const used = new Set<string>();
+  const topSignals: typeof withContribution = [];
+
+  for (const signal of byContribution) {
+    if (topSignals.length >= 3) break;
+    topSignals.push(signal);
+    used.add(signal.name);
+  }
+
+  const pressureSignal = withContribution
+    .filter(
+      (s) =>
+        (PRESSURE_SIGNAL_NAMES as readonly string[]).includes(s.name) && s.score < 40 && !used.has(s.name)
+    )
+    .sort((a, b) => a.score - b.score)[0];
+  if (pressureSignal) {
+    topSignals.push(pressureSignal);
+    used.add(pressureSignal.name);
+  }
+
+  for (const signal of byContribution) {
+    if (topSignals.length >= 4) break;
+    if (!used.has(signal.name)) {
+      topSignals.push(signal);
+      used.add(signal.name);
+    }
+  }
 
   const top = topSignals[0];
   let summary = "Moderate opportunity based on available signals.";

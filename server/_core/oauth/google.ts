@@ -183,8 +183,6 @@ export async function handleGoogleCallback(req: Request, res: Response): Promise
         name: profile.name ?? email.split("@")[0] ?? "User",
         loginMethod: "google",
         role: "user",
-        planId: "trial",
-        planStatus: "active",
         accountStatus: "active",
         lastSignedIn: now,
         termsAcceptedAt: now,

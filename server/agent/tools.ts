@@ -237,8 +237,6 @@ Provide a JSON response with trendScore, saturationScore, profitPotential, suppl
     return { error: "Validation failed — no AI response" };
   }
 
-  await recordUserEvent(user.id, "ai_call", { feature: "validate", source: "agent" });
-
   return {
     ...JSON.parse(content),
     productTitle,
