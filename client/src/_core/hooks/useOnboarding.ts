@@ -2,12 +2,19 @@ import { useCallback, useState } from "react";
 
 const STORAGE_KEY = "trendhunter:onboarding";
 
-export type OnboardingStep = "discover" | "watchlist" | "pipeline";
+export type OnboardingStep =
+  | "discover"
+  | "watchlist"
+  | "pipeline"
+  | "profit"
+  | "social";
 
 type OnboardingState = {
   discover: boolean;
   watchlist: boolean;
   pipeline: boolean;
+  profit: boolean;
+  social: boolean;
   dismissed: boolean;
 };
 
@@ -15,6 +22,8 @@ const DEFAULT: OnboardingState = {
   discover: false,
   watchlist: false,
   pipeline: false,
+  profit: false,
+  social: false,
   dismissed: false,
 };
 
@@ -56,7 +65,12 @@ export function useOnboarding() {
     });
   }, []);
 
-  const isComplete = state.discover && state.watchlist && state.pipeline;
+  const isComplete =
+    state.discover &&
+    state.watchlist &&
+    state.pipeline &&
+    state.profit &&
+    state.social;
   const showChecklist = !state.dismissed && !isComplete;
 
   return { state, completeStep, dismiss, showChecklist, isComplete };

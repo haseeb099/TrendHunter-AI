@@ -12,5 +12,7 @@ describe("suppliers", () => {
     const result = await getOffersForProduct({ title: "Wireless Earbuds", region: "US" });
     expect(result.offers).toEqual([]);
     expect(result.dataMode).toBe("cached");
+    expect(result.matchState).toBe("none");
+    expect(result.message).toBeTruthy();
   });
 });

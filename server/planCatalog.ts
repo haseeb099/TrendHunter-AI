@@ -80,6 +80,14 @@ export async function seedPlanConfigsIfEmpty(): Promise<void> {
       value: true,
     })
     .onDuplicateKeyUpdate({ set: { value: true } });
+
+  await db
+    .insert(platformSettings)
+    .values({
+      key: "strict_truth_mode",
+      value: true,
+    })
+    .onDuplicateKeyUpdate({ set: { value: true } });
 }
 
 export async function getPlanCatalog(): Promise<Record<PlanId, PlanDefinition>> {
@@ -162,6 +170,7 @@ export async function getPlatformSettings(): Promise<Record<string, unknown>> {
       trial_days: TRIAL_DAYS,
       registration_enabled: true,
       self_serve_billing: false,
+      strict_truth_mode: true,
     };
     return cachedSettings;
   }
@@ -172,6 +181,7 @@ export async function getPlatformSettings(): Promise<Record<string, unknown>> {
     trial_days: TRIAL_DAYS,
     registration_enabled: true,
     self_serve_billing: false,
+    strict_truth_mode: true,
   };
   for (const row of rows) {
     settings[row.key] = row.value;

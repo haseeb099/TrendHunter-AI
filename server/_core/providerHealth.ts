@@ -95,7 +95,35 @@ export async function shouldSkipProvider(provider: string): Promise<boolean> {
 }
 
 export async function getAllProviderHealth(): Promise<Record<string, CircuitState>> {
-  const providers = ["ebay", "amazon", "google_shopping", "tiktok", "free_retail", "shoptera", "serpapi", "meta_ads"];
+  const providers = [
+    "ebay",
+    "amazon",
+    "google_shopping",
+    "serper",
+    "serper_web",
+    "serper_images",
+    "serper_news",
+    "tiktok",
+    "free_retail",
+    "shoptera",
+    "serpapi",
+    "meta_ads",
+    "rapidapi_amazon",
+    "rapidapi_product_search",
+    "rapidapi_google_search",
+    "rapidapi_etsy",
+    "rapidapi_pangolinfo",
+    "rapidapi_lazada",
+    "rapidapi_taobao",
+    "rapidapi_alibaba",
+    "rapidapi_ebay_data",
+    "rapidapi_axesso_walmart",
+    "rapidapi_ali_express",
+    "rapidapi_aliexpress_datahub",
+    "rapidapi_web_search",
+    "rapidapi_news_data",
+    "rapidapi_news_api",
+  ];
   const result: Record<string, CircuitState> = {};
   for (const p of providers) {
     result[p] = await getProviderState(p);

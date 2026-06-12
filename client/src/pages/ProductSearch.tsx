@@ -23,14 +23,16 @@ import type { ProductDrawerTab } from "@/components/product-workspace/types";
 import type { ProductValidationResult } from "@/components/product-workspace/types";
 import { SearchFilterDrawer } from "@/components/SearchFilterDrawer";
 import { Search, Filter, Info, Sparkles, Compass, Zap, Database } from "lucide-react";
+import { DiscoverToolbar } from "@/components/discover/DiscoverToolbar";
+import { useTrendWindow } from "@/_core/hooks/useTrendWindow";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { DataFreshnessBadge } from "@/components/intelligence/DataFreshnessBadge";
-import { ProviderStatusBar } from "@/components/intelligence/ProviderStatusBar";
+import { MarketplaceCoverageBar } from "@/components/intelligence/MarketplaceCoverageBar";
 import { Switch } from "@/components/ui/switch";
 import { trpc } from "@/lib/trpc";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 import type { ProductHuntFilters, ProductSearchResult, RegionCode } from "@shared/searchTypes";
-import { OnboardingChecklist } from "@/components/onboarding/OnboardingChecklist";
 import { useOnboarding } from "@/_core/hooks/useOnboarding";
 
 const LIVE_SEARCH_PREF_KEY = "trendhunter:liveSearch";
@@ -51,7 +53,30 @@ function persistLiveSearchPref(value: boolean) {
   }
 }
 
-type SearchPlatform = "all" | "ebay" | "amazon" | "shopify" | "tiktok";
+type SearchPlatform =
+  | "all"
+  | "ebay"
+  | "amazon"
+  | "shopify"
+  | "tiktok"
+  | "aliexpress"
+  | "cj";
+
+const SEARCH_PLATFORMS: SearchPlatform[] = [
+  "all",
+  "ebay",
+  "amazon",
+  "shopify",
+  "tiktok",
+  "aliexpress",
+  "cj",
+];
+
+function isSearchPlatform(value: string): value is SearchPlatform {
+  return (SEARCH_PLATFORMS as readonly string[]).includes(value);
+}
+
+const PAGE_SIZE_OPTIONS = [50, 100, 200, 500] as const;
 
 export default function ProductSearch() {
   const [location] = useLocation();
@@ -70,7 +95,14 @@ export default function ProductSearch() {
   const [detailProduct, setDetailProduct] = useState<ProductSearchResult | null>(null);
   const [drawerTab, setDrawerTab] = useState<ProductDrawerTab>("overview");
   const [liveSearch, setLiveSearch] = useState(readLiveSearchPref);
+  const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(50);
+  const [cursor, setCursor] = useState(0);
+  const [accumulatedResults, setAccumulatedResults] = useState<ProductSearchResult[]>([]);
   const { completeStep } = useOnboarding();
+  const { window: trendWindow, setWindow: setTrendWindow, label: trendWindowLabel } = useTrendWindow();
+  const { isAuthenticated } = useAuth();
+  const [categorySheetOpen, setCategorySheetOpen] = useState(false);
+  const [discoverQuery, setDiscoverQuery] = useState("");
 
   const handleLiveSearchChange = (checked: boolean) => {
     setLiveSearch(checked);
@@ -110,6 +142,14 @@ export default function ProductSearch() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const q = params.get("q");
+    const platformParam = params.get("platform");
+    if (platformParam && isSearchPlatform(platformParam)) {
+      setPlatform(platformParam);
+    }
+    if (params.get("live") === "true") {
+      setLiveSearch(true);
+      persistLiveSearchPref(true);
+    }
     if (q?.trim()) {
       setQuery(q.trim());
       setSubmittedQuery(q.trim());
@@ -125,18 +165,33 @@ export default function ProductSearch() {
     [huntFilters, priceMin, priceMax]
   );
 
-  const categoriesQuery = trpc.trending.getCategories.useQuery(
+  const discoverFilters = useMemo<ProductHuntFilters>(
+    () => ({
+      ...mergedFilters,
+      query: discoverQuery.trim() || undefined,
+    }),
+    [mergedFilters, discoverQuery]
+  );
+
+  const categoryTreeQuery = trpc.search.getCategoryTree.useQuery(
     { region: huntFilters.region },
     { enabled: activeTab === "discover" }
   );
 
   const recordDiscoverView = trpc.analytics.recordDiscoverView.useMutation();
 
+  const paginationParams = useMemo(
+    () => ({ limit: pageSize, cursor }),
+    [pageSize, cursor]
+  );
+
   const trendingQuery = trpc.trending.getFeed.useQuery(
     {
       region: huntFilters.region,
       category: huntFilters.category,
-      filters: mergedFilters,
+      filters: discoverFilters,
+      pagination: paginationParams,
+      timeframe: trendWindow,
     },
     { enabled: activeTab === "discover" }
   );
@@ -148,14 +203,14 @@ export default function ProductSearch() {
   }, [activeTab, trendingQuery.data?.results.length, completeStep]);
 
   useEffect(() => {
-    if (activeTab === "discover" && trendingQuery.data) {
+    if (activeTab === "discover" && isAuthenticated && trendingQuery.data) {
       recordDiscoverView.mutate({
         region: huntFilters.region,
         category: huntFilters.category,
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- record per feed fetch
-  }, [activeTab, trendingQuery.dataUpdatedAt]);
+  }, [activeTab, isAuthenticated, trendingQuery.dataUpdatedAt]);
 
   const searchQuery = trpc.search.searchProducts.useQuery(
     {
@@ -163,9 +218,54 @@ export default function ProductSearch() {
       platform,
       filters: mergedFilters,
       live: liveSearch,
+      pagination: paginationParams,
     },
     { enabled: activeTab === "search" && submittedQuery.length > 0, retry: false }
   );
+
+  useEffect(() => {
+    setCursor(0);
+    setAccumulatedResults([]);
+  }, [
+    activeTab,
+    submittedQuery,
+    platform,
+    liveSearch,
+    pageSize,
+    huntFilters.region,
+    huntFilters.category,
+    huntFilters.subcategory,
+    huntFilters.productType,
+    huntFilters.sort,
+    huntFilters.shipFrom,
+    huntFilters.minRating,
+    huntFilters.maxShippingDays,
+    priceMin,
+    priceMax,
+    trendWindow,
+    discoverQuery,
+  ]);
+
+  useEffect(() => {
+    const data = activeTab === "discover" ? trendingQuery.data : searchQuery.data;
+    if (!data) return;
+    if (cursor === 0) {
+      setAccumulatedResults(data.results);
+    } else {
+      setAccumulatedResults((prev) => {
+        const seen = new Set(prev.map((p) => `${p.platform}:${p.id}`));
+        const merged = [...prev];
+        for (const item of data.results) {
+          const key = `${item.platform}:${item.id}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            merged.push(item);
+          }
+        }
+        return merged;
+      });
+    }
+  }, [activeTab, trendingQuery.dataUpdatedAt, searchQuery.dataUpdatedAt, cursor]);
 
   useEffect(() => {
     if (searchQuery.data?.creditsUsed && searchQuery.data.creditsUsed > 0) {
@@ -292,13 +392,26 @@ export default function ProductSearch() {
   };
 
   const activeData = activeTab === "discover" ? trendingQuery.data : searchQuery.data;
-  const isLoading = activeTab === "discover" ? trendingQuery.isFetching : searchQuery.isFetching;
+  const isLoading =
+    (activeTab === "discover" ? trendingQuery.isFetching : searchQuery.isFetching) &&
+    cursor === 0;
+  const isLoadingMore =
+    (activeTab === "discover" ? trendingQuery.isFetching : searchQuery.isFetching) &&
+    cursor > 0;
   const activeError = activeTab === "discover" ? trendingQuery.error : searchQuery.error;
+  const displayResults = accumulatedResults.length > 0 ? accumulatedResults : activeData?.results ?? [];
+  const totalCount = activeData?.totalCount ?? displayResults.length;
+  const hasMore = activeData?.nextCursor != null;
 
   const activeFilterChips = useMemo(() => {
     const chips: string[] = [];
     if (huntFilters.region) chips.push(`Region: ${huntFilters.region}`);
     if (huntFilters.category) chips.push(`Category: ${huntFilters.category}`);
+    if (huntFilters.subcategory) chips.push(`Subcategory: ${huntFilters.subcategory}`);
+    if (huntFilters.productType) chips.push(`Type: ${huntFilters.productType}`);
+    if (activeTab === "discover" && discoverQuery.trim()) {
+      chips.push(`Search: ${discoverQuery.trim()}`);
+    }
     if (priceMin > 0 || priceMax < 1000) chips.push(`Price: $${priceMin}–$${priceMax}`);
     if (huntFilters.shipFrom?.length) chips.push(`Ship: ${huntFilters.shipFrom.join(", ")}`);
     if (huntFilters.minRating) chips.push(`Rating ≥ ${huntFilters.minRating}`);
@@ -307,7 +420,7 @@ export default function ProductSearch() {
       chips.push(`Sort: ${huntFilters.sort.replace("_", " ")}`);
     }
     return chips;
-  }, [huntFilters, priceMin, priceMax]);
+  }, [huntFilters, priceMin, priceMax, activeTab, discoverQuery]);
 
   const discoverNeedsIngest =
     activeTab === "discover" &&
@@ -316,6 +429,172 @@ export default function ProductSearch() {
     trendingQuery.data.results.length === 0 &&
     trendingQuery.data.warnings?.some((w) => w.toLowerCase().includes("ingest"));
 
+  const resultsPanel = (
+    <>
+      {activeFilterChips.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {activeFilterChips.map((chip) => (
+            <Badge key={chip} variant="secondary" className="text-xs">
+              {chip}
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+
+      {isLoading ? (
+        <div className="flex justify-center py-12">
+          <div className="space-y-3 text-center">
+            <Spinner className="mx-auto h-8 w-8 text-primary" />
+            <p className="text-sm text-muted-foreground">
+              {activeTab === "discover" ? "Loading trending products..." : "Searching marketplaces..."}
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      {activeError ? (
+        <Alert variant="destructive">
+          <AlertDescription>{activeError.message}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {activeData?.warnings?.map((warning) => (
+        <Alert key={warning} className="border-warning/30 bg-warning/5">
+          <Info className="h-4 w-4" />
+          <AlertDescription>{warning}</AlertDescription>
+        </Alert>
+      ))}
+
+      {discoverNeedsIngest ? (
+        <EmptyState
+          icon={Compass}
+          title="Discover needs trending data"
+          description="Trending fills automatically every hour for all regions and categories (US, UK, EU, Global). The queue respects API rate limits and resumes after each hour."
+          action={{
+            label: "Copy ingest command",
+            onClick: () => {
+              void navigator.clipboard.writeText("pnpm ingest:daily");
+              toast.success("Copied: pnpm ingest:daily");
+            },
+          }}
+        />
+      ) : null}
+
+      {activeData && !isLoading && !discoverNeedsIngest ? (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="font-display text-lg font-semibold sm:text-xl">
+              {displayResults.length} of {totalCount} product{totalCount !== 1 ? "s" : ""}
+            </h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                value={String(pageSize)}
+                onValueChange={(v) => setPageSize(Number(v) as (typeof PAGE_SIZE_OPTIONS)[number])}
+              >
+                <SelectTrigger className="h-9 w-[128px] text-xs">
+                  <SelectValue placeholder="Per page" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAGE_SIZE_OPTIONS.map((size) => (
+                    <SelectItem key={size} value={String(size)}>
+                      {size} / page
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {activeTab === "search" ? (
+                <DataFreshnessBadge
+                  dataMode={activeData.dataMode ?? "cached"}
+                  cachedAt={activeData.cachedAt}
+                  stale={activeData.stale}
+                  creditsUsed={activeData.creditsUsed}
+                />
+              ) : null}
+              {activeData.sources.length > 0
+                ? activeData.sources.map((source) => (
+                    <Badge key={source} variant="outline" className="text-[10px] capitalize">
+                      {source.replace("_", " ")}
+                    </Badge>
+                  ))
+                : null}
+            </div>
+          </div>
+
+          {displayResults.length > 0 ? (
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+              {displayResults.map((product) => (
+                <ProductCard
+                  key={`${product.platform}-${product.id}`}
+                  product={product}
+                  onSave={handleAddToWatchlist}
+                  onPipeline={handleAddToPipeline}
+                  onViewDetails={openProductDrawer}
+                  savePending={addToWatchlist.isPending}
+                  pipelinePending={addToPipeline.isPending}
+                  showTrendBadge={activeTab === "discover"}
+                  showRankReason
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <EmptyState
+                icon={Search}
+                title="No products found"
+                description="Try different keywords, region, or widen your filters."
+              />
+              {activeData.recoverySuggestions && activeData.recoverySuggestions.length > 0 ? (
+                <Card className="space-y-3 p-4">
+                  <p className="text-sm font-medium">Try these related searches</p>
+                  <div className="flex flex-wrap gap-2">
+                    {activeData.recoverySuggestions.map((suggestion) => (
+                      <Button
+                        key={suggestion}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setQuery(suggestion);
+                          setSubmittedQuery(suggestion);
+                        }}
+                      >
+                        {suggestion}
+                      </Button>
+                    ))}
+                  </div>
+                  {activeTab === "search" ? (
+                    <p className="text-xs text-muted-foreground">
+                      Live search uses 1 credit when providers return results.
+                    </p>
+                  ) : null}
+                </Card>
+              ) : null}
+            </div>
+          )}
+
+          {hasMore ? (
+            <div className="flex justify-center pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isLoadingMore}
+                onClick={() => setCursor(activeData.nextCursor ?? cursor + pageSize)}
+              >
+                {isLoadingMore ? (
+                  <>
+                    <Spinner className="w-4 h-4" />
+                    Loading...
+                  </>
+                ) : (
+                  "Load more"
+                )}
+              </Button>
+            </div>
+          ) : null}
+        </>
+      ) : null}
+    </>
+  );
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -323,9 +602,7 @@ export default function ProductSearch() {
         description="Discover trending products and search connected marketplaces — cached by default, live on demand."
       />
 
-      <ProviderStatusBar />
-
-      <OnboardingChecklist />
+      <MarketplaceCoverageBar />
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "discover" | "search")}>
         <TabsList>
@@ -339,75 +616,47 @@ export default function ProductSearch() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="discover" className="space-y-6 mt-6">
-          {trendingQuery.data && !trendingQuery.isFetching ? (
-            <div className="flex justify-end">
-              <DataFreshnessBadge
-                dataMode={trendingQuery.data.dataMode ?? "cached"}
-                cachedAt={trendingQuery.data.cachedAt}
-                stale={trendingQuery.data.stale}
-              />
+        <TabsContent value="discover" className="mt-6">
+          <div className="flex min-h-[calc(100vh-14rem)] flex-col overflow-hidden rounded-xl border border-border bg-card/30">
+            <DiscoverToolbar
+              tree={categoryTreeQuery.data?.tree ?? []}
+              loading={categoryTreeQuery.isLoading}
+              regions={filterOptions.data?.regions ?? []}
+              region={huntFilters.region ?? "US"}
+              onRegionChange={(code) => setHuntFilters((f) => ({ ...f, region: code }))}
+              searchQuery={discoverQuery}
+              onSearchQueryChange={setDiscoverQuery}
+              selectedCategory={huntFilters.category}
+              selectedSubcategory={huntFilters.subcategory}
+              selectedProductType={huntFilters.productType}
+              trendWindow={trendWindow}
+              onTrendWindowChange={setTrendWindow}
+              categorySheetOpen={categorySheetOpen}
+              onCategorySheetOpenChange={setCategorySheetOpen}
+              onCategorySelect={(selection) =>
+                setHuntFilters((f) => ({
+                  ...f,
+                  category: selection.category,
+                  subcategory: selection.subcategory,
+                  productType: selection.productType,
+                }))
+              }
+              onOpenFilters={() => setFiltersOpen(true)}
+            />
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-5">
+              {trendingQuery.data && !trendingQuery.isFetching ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <span>Trending · {trendWindowLabel}</span>
+                  <DataFreshnessBadge
+                    dataMode={trendingQuery.data.dataMode ?? "cached"}
+                    cachedAt={trendingQuery.data.cachedAt}
+                    stale={trendingQuery.data.stale}
+                  />
+                </div>
+              ) : null}
+              {resultsPanel}
             </div>
-          ) : null}
-          {categoriesQuery.data?.categories && categoriesQuery.data.categories.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant={!huntFilters.category ? "default" : "outline"}
-                onClick={() => setHuntFilters((f) => ({ ...f, category: undefined }))}
-              >
-                All categories
-              </Button>
-              {categoriesQuery.data.categories.map((c) => (
-                <Button
-                  key={c.value}
-                  type="button"
-                  size="sm"
-                  variant={huntFilters.category === c.value ? "default" : "outline"}
-                  onClick={() => setHuntFilters((f) => ({ ...f, category: c.value }))}
-                >
-                  {c.label}
-                </Button>
-              ))}
-            </div>
-          ) : null}
-
-          <Card className="surface-elevated p-4 sm:p-5">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="space-y-2 sm:col-span-2">
-                <Label>Region</Label>
-                <Select
-                  value={huntFilters.region ?? filterOptions.data?.defaultRegion ?? "US"}
-                  onValueChange={(v) => {
-                    setHuntFilters((f) => ({ ...f, region: v as RegionCode }));
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {filterOptions.data?.regions.map((r) => (
-                      <SelectItem key={r.code} value={r.code}>
-                        {r.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-end">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full"
-                  onClick={() => setFiltersOpen(true)}
-                >
-                  <Filter className="w-4 h-4 mr-2" />
-                  More filters
-                </Button>
-              </div>
-            </div>
-          </Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="search" className="mt-6">
@@ -496,6 +745,8 @@ export default function ProductSearch() {
                       <SelectItem value="tiktok">
                         TikTok Shop
                       </SelectItem>
+                      <SelectItem value="aliexpress">AliExpress</SelectItem>
+                      <SelectItem value="cj">CJ Dropshipping</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -566,130 +817,7 @@ export default function ProductSearch() {
         </TabsContent>
       </Tabs>
 
-      {activeFilterChips.length > 0 ? (
-        <div className="flex flex-wrap gap-2">
-          {activeFilterChips.map((chip) => (
-            <Badge key={chip} variant="secondary">
-              {chip}
-            </Badge>
-          ))}
-        </div>
-      ) : null}
-
-      {isLoading && (
-        <div className="flex justify-center py-16">
-          <div className="text-center space-y-3">
-            <Spinner className="w-8 h-8 mx-auto text-primary" />
-            <p className="text-sm text-muted-foreground">
-              {activeTab === "discover" ? "Loading trending products..." : "Searching marketplaces..."}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {activeError && (
-        <Alert variant="destructive">
-          <AlertDescription>{activeError.message}</AlertDescription>
-        </Alert>
-      )}
-
-      {activeData?.warnings?.map((warning) => (
-        <Alert key={warning} className="border-warning/30 bg-warning/5">
-          <Info className="h-4 w-4" />
-          <AlertDescription>{warning}</AlertDescription>
-        </Alert>
-      ))}
-
-      {discoverNeedsIngest ? (
-        <EmptyState
-          icon={Compass}
-          title="Discover needs trending data"
-          description="No cached trending snapshot exists yet. Run the daily ingest locally or wait for the scheduled job to populate Discover."
-          action={{
-            label: "Copy ingest command",
-            onClick: () => {
-              void navigator.clipboard.writeText("pnpm ingest:daily");
-              toast.success("Copied: pnpm ingest:daily");
-            },
-          }}
-        />
-      ) : null}
-
-      {activeData && !isLoading && !discoverNeedsIngest && (
-        <>
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <h2 className="font-display text-xl font-semibold">
-              {activeData.results.length} result{activeData.results.length !== 1 ? "s" : ""}
-            </h2>
-            <div className="flex gap-2 flex-wrap items-center">
-              <DataFreshnessBadge
-                dataMode={activeData.dataMode ?? "cached"}
-                cachedAt={activeData.cachedAt}
-                stale={activeData.stale}
-                creditsUsed={activeData.creditsUsed}
-              />
-              {activeData.sources.length > 0
-                ? activeData.sources.map((source) => (
-                    <Badge key={source} variant="outline" className="text-[10px] capitalize">
-                      {source.replace("_", " ")}
-                    </Badge>
-                  ))
-                : null}
-            </div>
-          </div>
-
-          {activeData.results.length > 0 ? (
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {activeData.results.map((product) => (
-                <ProductCard
-                  key={`${product.platform}-${product.id}`}
-                  product={product}
-                  onSave={handleAddToWatchlist}
-                  onPipeline={handleAddToPipeline}
-                  onViewDetails={openProductDrawer}
-                  savePending={addToWatchlist.isPending}
-                  pipelinePending={addToPipeline.isPending}
-                  showTrendBadge={activeTab === "discover"}
-                  showRankReason
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <EmptyState
-                icon={Search}
-                title="No products found"
-                description="Try different keywords, region, or widen your filters."
-              />
-              {activeData.recoverySuggestions && activeData.recoverySuggestions.length > 0 ? (
-                <Card className="p-4 space-y-3">
-                  <p className="text-sm font-medium">Try these related searches</p>
-                  <div className="flex flex-wrap gap-2">
-                    {activeData.recoverySuggestions.map((suggestion) => (
-                      <Button
-                        key={suggestion}
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setQuery(suggestion);
-                          setSubmittedQuery(suggestion);
-                        }}
-                      >
-                        {suggestion}
-                      </Button>
-                    ))}
-                  </div>
-                  {activeTab === "search" ? (
-                    <p className="text-xs text-muted-foreground">
-                      Live search uses 1 credit when providers return results.
-                    </p>
-                  ) : null}
-                </Card>
-              ) : null}
-            </div>
-          )}
-        </>
-      )}
+      {activeTab === "search" ? resultsPanel : null}
 
       {activeTab === "search" && !submittedQuery && !searchQuery.isFetching && (
         <EmptyState

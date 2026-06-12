@@ -16,6 +16,7 @@ import {
   InsertProfitCalculation,
   suppliers,
   InsertSupplier,
+  supplierCatalog,
   trendingSnapshots,
   productOffers,
   savedFilterPresets,
@@ -69,6 +70,21 @@ export async function pingDatabase(): Promise<{
       latencyMs: Date.now() - start,
       error: err instanceof Error ? err.message : "ping_failed",
     };
+  }
+}
+
+/** Throws a user-facing message when MySQL is down or DATABASE_URL is missing. */
+export async function assertDatabaseAvailable(): Promise<void> {
+  if (!process.env.DATABASE_URL?.trim()) {
+    throw new Error(
+      "Database is not configured. Set DATABASE_URL in .env and run npm run db:up && npm run db:migrate."
+    );
+  }
+  const ping = await pingDatabase();
+  if (!ping.ok) {
+    throw new Error(
+      "Database is unavailable. Start MySQL with npm run db:up, then npm run db:migrate."
+    );
   }
 }
 
@@ -305,6 +321,19 @@ export async function getSuppliers(userId: number) {
   return db.select().from(suppliers).where(eq(suppliers.userId, userId)).orderBy(desc(suppliers.createdAt));
 }
 
+export async function getSupplierCatalog(category?: string) {
+  const db = await getDb();
+  if (!db) return [];
+  if (category) {
+    return db
+      .select()
+      .from(supplierCatalog)
+      .where(eq(supplierCatalog.category, category))
+      .orderBy(desc(supplierCatalog.coverageScore));
+  }
+  return db.select().from(supplierCatalog).orderBy(desc(supplierCatalog.coverageScore));
+}
+
 export async function createSupplier(supplier: InsertSupplier) {
   const db = await getDb();
   if (!db) return;
@@ -347,25 +376,41 @@ export async function deleteSupplier(id: number, userId: number) {
   await db.delete(suppliers).where(and(eq(suppliers.id, id), eq(suppliers.userId, userId)));
 }
 
-// Trending snapshots
-export async function getValidTrendingSnapshot(region: string, category?: string) {
+// Trending snapshots — metadata queries exclude `payload` to avoid MySQL sort-buffer OOM on large JSON rows.
+const trendingSnapshotMetaColumns = {
+  id: trendingSnapshots.id,
+  region: trendingSnapshots.region,
+  category: trendingSnapshots.category,
+  sources: trendingSnapshots.sources,
+  isDemo: trendingSnapshots.isDemo,
+  createdAt: trendingSnapshots.createdAt,
+  expiresAt: trendingSnapshots.expiresAt,
+};
+
+function trendingCategoryCondition(category?: string) {
+  return category
+    ? eq(trendingSnapshots.category, category)
+    : isNull(trendingSnapshots.category);
+}
+
+async function findLatestTrendingSnapshotMeta(
+  region: string,
+  category?: string,
+  options?: { requireValid?: boolean }
+) {
   const db = await getDb();
   if (!db) return null;
 
-  const now = new Date();
   const conditions = [
     eq(trendingSnapshots.region, region),
-    gt(trendingSnapshots.expiresAt, now),
+    trendingCategoryCondition(category),
   ];
-
-  if (category) {
-    conditions.push(eq(trendingSnapshots.category, category));
-  } else {
-    conditions.push(isNull(trendingSnapshots.category));
+  if (options?.requireValid) {
+    conditions.push(gt(trendingSnapshots.expiresAt, new Date()));
   }
 
   const rows = await db
-    .select()
+    .select(trendingSnapshotMetaColumns)
     .from(trendingSnapshots)
     .where(and(...conditions))
     .orderBy(desc(trendingSnapshots.createdAt))
@@ -374,26 +419,45 @@ export async function getValidTrendingSnapshot(region: string, category?: string
   return rows[0] ?? null;
 }
 
-export async function getStaleTrendingSnapshot(region: string, category?: string) {
+async function loadTrendingSnapshotPayload(id: number) {
   const db = await getDb();
   if (!db) return null;
 
-  const conditions = [eq(trendingSnapshots.region, region)];
-
-  if (category) {
-    conditions.push(eq(trendingSnapshots.category, category));
-  } else {
-    conditions.push(isNull(trendingSnapshots.category));
-  }
-
   const rows = await db
-    .select()
+    .select({ payload: trendingSnapshots.payload })
     .from(trendingSnapshots)
-    .where(and(...conditions))
-    .orderBy(desc(trendingSnapshots.createdAt))
+    .where(eq(trendingSnapshots.id, id))
     .limit(1);
 
-  return rows[0] ?? null;
+  return rows[0]?.payload ?? null;
+}
+
+export async function getValidTrendingSnapshot(region: string, category?: string) {
+  try {
+    const meta = await findLatestTrendingSnapshotMeta(region, category, {
+      requireValid: true,
+    });
+    if (!meta) return null;
+    const payload = await loadTrendingSnapshotPayload(meta.id);
+    if (payload == null) return null;
+    return { ...meta, payload };
+  } catch (err) {
+    console.warn("[db] getValidTrendingSnapshot failed:", err);
+    return null;
+  }
+}
+
+export async function getStaleTrendingSnapshot(region: string, category?: string) {
+  try {
+    const meta = await findLatestTrendingSnapshotMeta(region, category);
+    if (!meta) return null;
+    const payload = await loadTrendingSnapshotPayload(meta.id);
+    if (payload == null) return null;
+    return { ...meta, payload };
+  } catch (err) {
+    console.warn("[db] getStaleTrendingSnapshot failed:", err);
+    return null;
+  }
 }
 
 export async function getLatestIngestRun() {
@@ -423,6 +487,14 @@ export async function upsertTrendingSnapshot(data: {
 
   await pruneExpiredTrendingSnapshots();
 
+  const categoryCond = data.category
+    ? eq(trendingSnapshots.category, data.category)
+    : isNull(trendingSnapshots.category);
+
+  await db
+    .delete(trendingSnapshots)
+    .where(and(eq(trendingSnapshots.region, data.region), categoryCond));
+
   await db.insert(trendingSnapshots).values({
     region: data.region,
     category: data.category,
@@ -431,6 +503,26 @@ export async function upsertTrendingSnapshot(data: {
     isDemo: data.isDemo,
     expiresAt: data.expiresAt,
   });
+}
+
+/** One-time cleanup: drop duplicate historical rows (keeps latest id per region+category). */
+export async function pruneDuplicateTrendingSnapshots(): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+
+  try {
+    const result = await db.execute(sql`
+      DELETE t1 FROM trending_snapshots t1
+      INNER JOIN trending_snapshots t2
+        ON t1.region = t2.region
+        AND (t1.category <=> t2.category)
+        AND t1.id < t2.id
+    `);
+    return Number((result as { affectedRows?: number }).affectedRows ?? 0);
+  } catch (err) {
+    console.warn("[db] pruneDuplicateTrendingSnapshots failed:", err);
+    return 0;
+  }
 }
 
 export async function pruneExpiredTrendingSnapshots() {

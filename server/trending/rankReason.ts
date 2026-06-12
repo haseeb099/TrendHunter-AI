@@ -7,12 +7,16 @@ export function buildRankingExplanation(product: ProductSearchResult): RankingEx
   const inputs = product.trendScoreInputs;
   if (!inputs) return undefined;
 
-  const signals = [
-    { name: "Trend momentum", score: inputs.momentumScore ?? 50, weight: 0.18 },
-    { name: "Meta ad saturation", score: inputs.adSaturationScore ?? 50, weight: 0.14 },
-    { name: "Margin hint", score: inputs.marginHint ?? 50, weight: 0.14 },
-    { name: "Supplier confidence", score: inputs.supplierConfidence ?? 50, weight: 0.1 },
-  ].map((s) => ({ ...s, contribution: Math.round(s.score * s.weight * 10) / 10 }));
+  const signals = (
+    [
+      { name: "Trend momentum", score: inputs.momentumScore, weight: 0.18 },
+      { name: "Meta ad saturation", score: inputs.adSaturationScore, weight: 0.14 },
+      { name: "Margin hint", score: inputs.marginHint, weight: 0.14 },
+      { name: "Supplier confidence", score: inputs.supplierConfidence, weight: 0.1 },
+    ] as Array<{ name: string; score: number | undefined; weight: number }>
+  )
+    .filter((s): s is { name: string; score: number; weight: number } => s.score != null)
+    .map((s) => ({ ...s, contribution: Math.round(s.score * s.weight * 10) / 10 }));
 
   const top = signals.sort((a, b) => b.contribution - a.contribution)[0];
   return {

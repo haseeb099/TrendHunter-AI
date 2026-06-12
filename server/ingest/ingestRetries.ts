@@ -36,16 +36,25 @@ export async function processIngestRetries(): Promise<{
   const db = await getDb();
   if (!db) return { processed: 0, errors: [] };
 
-  const pending = await db
-    .select()
-    .from(ingestRetries)
-    .where(
-      and(
-        eq(ingestRetries.status, "pending"),
-        lte(ingestRetries.nextRetryAt, new Date())
+  let pending: (typeof ingestRetries.$inferSelect)[] = [];
+  try {
+    pending = await db
+      .select()
+      .from(ingestRetries)
+      .where(
+        and(
+          eq(ingestRetries.status, "pending"),
+          lte(ingestRetries.nextRetryAt, new Date())
+        )
       )
-    )
-    .limit(20);
+      .limit(20);
+  } catch (err) {
+    console.warn("[ingestRetries] queue unavailable:", err);
+    return {
+      processed: 0,
+      errors: [err instanceof Error ? err.message : String(err)],
+    };
+  }
 
   let processed = 0;
   const errors: string[] = [];

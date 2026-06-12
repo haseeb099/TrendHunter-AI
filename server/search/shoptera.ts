@@ -1,5 +1,11 @@
 import type { ProductSearchResult, RegionCode } from "@shared/searchTypes";
 import { ENV } from "../_core/env";
+import {
+  assertProviderBudget,
+  ProviderBudgetExhaustedError,
+  recordProviderApiCall,
+} from "../dataPlatform/providerBudget";
+import { PROVIDER_FETCH_LIMIT } from "./constants";
 import { resolveRegion } from "./regions";
 
 /** Shoptera — free public catalog, no API key (300 req/hr per IP). */
@@ -21,29 +27,40 @@ type ShopteraProduct = {
 
 export async function searchShoptera(
   query: string,
-  region?: RegionCode
+  region?: RegionCode,
+  options?: { ingest?: boolean }
 ): Promise<ProductSearchResult[]> {
-  const mapping = resolveRegion(region);
-  const originCountry =
-    mapping.defaultShipFrom === "UK"
-      ? "DE"
-      : mapping.defaultShipFrom === "EU"
-        ? "DE"
-        : mapping.googleCountry.toUpperCase() === "UK"
-          ? "DE"
-          : "DE";
+  try {
+    await assertProviderBudget("shoptera", { ingest: options?.ingest });
+  } catch (err) {
+    if (err instanceof ProviderBudgetExhaustedError) return [];
+    throw err;
+  }
 
-  const url = new URL("https://shoptera.ai/api/products/search");
+  const mapping = resolveRegion(region);
+  const originCountry = mapping.shopteraOriginCountry;
+
+  const url = new URL("https://shoptera.ai/api/v1/search/text");
   url.searchParams.set("title", query);
-  url.searchParams.set("limit", "20");
+  url.searchParams.set("limit", String(Math.min(PROVIDER_FETCH_LIMIT, 50)));
   url.searchParams.set("origin_country", originCountry);
   url.searchParams.set("currency", mapping.currency === "GBP" ? "EUR" : mapping.currency);
+  url.searchParams.set(
+    "fields",
+    "title,price,currency,product_url,image_url,brand,category,availability,eshop_domain"
+  );
 
   const response = await fetch(url, { headers: { accept: "application/json" } });
   if (!response.ok) {
+    if (response.status === 404) {
+      console.warn("[Shoptera] API unavailable (404) — catalog ingest skipped");
+      return [];
+    }
     const text = await response.text();
     throw new Error(`Shoptera failed (${response.status}): ${text.slice(0, 200)}`);
   }
+
+  await recordProviderApiCall("shoptera");
 
   const data = (await response.json()) as {
     products?: ShopteraProduct[];
@@ -51,7 +68,7 @@ export async function searchShoptera(
   };
 
   const items = data.products ?? data.results ?? [];
-  return items.slice(0, 20).map((p, i) => ({
+  return items.slice(0, PROVIDER_FETCH_LIMIT).map((p, i) => ({
     id: `shoptera-${i}-${(p.title ?? query).slice(0, 24)}`,
     title: p.title ?? "Product",
     price: p.price ?? 0,
@@ -65,6 +82,6 @@ export async function searchShoptera(
     currency: p.currency ?? mapping.currency,
     category: p.category,
     shipFrom: "EU",
-    trendScore: 58,
+    sourceProvider: "shoptera",
   }));
 }

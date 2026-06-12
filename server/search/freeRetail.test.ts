@@ -52,5 +52,8 @@ describe("searchFreeRetail", () => {
     const results = await searchFreeRetail("test", "US");
     expect(results.length).toBeGreaterThanOrEqual(1);
     expect(results.some((r) => r.platform === "shopify")).toBe(true);
+    expect(results.every((r) => r.trendScore == null)).toBe(true);
+    expect(results.every((r) => r.shippingDays == null)).toBe(true);
+    expect(results.every((r) => r.sourceProvider === "free_retail")).toBe(true);
   });
 });

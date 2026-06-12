@@ -2,10 +2,13 @@ import { ENV, isAiConfigured, isCjConfigured, isAliExpressConfigured } from "./e
 import { isRedisConfigured } from "./redis";
 import { isEbayConfigured } from "../search/ebay";
 import { isSerpApiConfigured, isSerpConfigured } from "../search/serpapi";
+import { isSerperConfigured } from "../search/serper";
 import { isJustSerpConfigured } from "../search/justserp";
 import { isTikTokConfigured } from "../search/tiktok";
 import { isFreeRetailEnabled } from "../search/freeRetail";
 import { isShopteraEnabled } from "../search/shoptera";
+import { isRapidAmazonConfigured } from "../search/rapidAmazon";
+import { getRapidApiProviderConfigs, isRapidApiConfigured } from "../search/rapidApi";
 import { isStripeConfigured } from "../stripe";
 
 const PRODUCTION_STRIPE_VARS = [
@@ -51,10 +54,40 @@ export function validateEnvOnStartup(): void {
   }
   if (!isSerpConfigured()) {
     warnings.push(
-      "SERPAPI_KEY / JUSTSERP_API_KEY not set — Amazon/Google Shopping/Trends skipped (free catalogs still work)"
+      "SERPER_API_KEY / SERPAPI_KEY / JUSTSERP_API_KEY not set — Google Shopping/Amazon skipped (free catalogs still work)"
+    );
+  } else if (isSerperConfigured() && !isSerpApiConfigured()) {
+    const keyCount =
+      (ENV.serperApiKey ? 1 : 0) +
+      ENV.serperApiKeys.filter((k) => k !== ENV.serperApiKey).length;
+    console.info(
+      `[Env] Serper.dev pool: ${keyCount} account(s), ${ENV.serperWeeklyCap} credits/week each — rotates on cap`
     );
   } else if (!isSerpApiConfigured() && isJustSerpConfigured()) {
     console.info("[Env] Just Serp API configured — Google Shopping/Trends (no Amazon)");
+  }
+  if (isShopteraEnabled()) {
+    console.info(
+      `[Env] Shoptera free ingest enabled — ${ENV.shopteraHourlyCap} searches/hour (hourly scheduler)`
+    );
+  }
+  if (isCjConfigured()) {
+    console.info(
+      `[Env] CJ free API ingest — ${ENV.cjDailyPointsCap} points/day, ${ENV.cjMinIntervalMs}ms between calls`
+    );
+  }
+  if (isRapidApiConfigured()) {
+    const providers = getRapidApiProviderConfigs();
+    console.info(
+      `[Env] RapidAPI — ${providers.length} providers, ${ENV.rapidApiIngestMaxPerCycle} calls/max daily cycle`
+    );
+    for (const p of providers) {
+      console.info(`  · ${p.label}: ${p.monthlyCap}/month`);
+    }
+  } else if (isRapidAmazonConfigured()) {
+    console.info(
+      `[Env] RapidAPI Amazon categories — ${ENV.rapidApiAmazonMonthlyCap} requests/month`
+    );
   }
   if (!isTikTokConfigured()) {
     warnings.push("TikTok Shop credentials not set — TikTok search unavailable");

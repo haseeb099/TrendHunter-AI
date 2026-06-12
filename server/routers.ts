@@ -18,6 +18,7 @@ import {
 import { billingRouter } from "./billingRouter";
 import { adminRouter } from "./adminRouter";
 import { assertSearchQuota, buildSubscriptionInfo, createTrialFields } from "./plans";
+import { assertLiveSearchHourlyLimit } from "./_core/rateLimit";
 import { spendCredits } from "./credits";
 import { getTrendSignal } from "./intelligence/trends";
 import { getAdLibrarySnapshot } from "./intelligence/adLibrary";
@@ -66,6 +67,7 @@ import {
   saveProfitCalculation,
   deleteProfitCalculation,
   getSuppliers,
+  getSupplierCatalog,
   createSupplier,
   updateSupplier,
   deleteSupplier,
@@ -88,11 +90,15 @@ import {
   getValidPasswordResetToken,
   markPasswordResetTokenUsed,
   invalidatePasswordResetTokensForUser,
+  assertDatabaseAvailable,
 } from "./db";
 import { buildPasswordResetEmail, sendEmail } from "./notifications/email";
 import { invokeLLMOrThrow } from "./_core/aiHelpers";
-import { getSearchProviderStatus, searchProducts as runProductSearch } from "./search";
+import { getSearchProviderStatus, getMarketplaceCoverage, searchProducts as runProductSearch } from "./search";
+import { paginateResults } from "./search/pagination";
+import { getCategoryTree } from "./search/categoryTaxonomy";
 import {
+  CATEGORY_LABELS,
   PRODUCT_CATEGORIES,
   REGION_LABELS,
   SHIP_FROM_OPTIONS,
@@ -105,6 +111,7 @@ import { createLogger } from "./_core/logger";
 import { getSupportedRegionOptions } from "./search/regions";
 import { getTrendingFeed } from "./trending";
 import { computeSupplierConfidenceTier, getOffersForProduct, getOffersStatus } from "./suppliers";
+import { attachOffersTruthLabels, attachSearchResponseTruthLabels } from "./search/truthLabels";
 import { getProductSnapshotDiff } from "./dataPlatform/snapshotDiff";
 import { computeNextMoves } from "./ranking/nextMoves";
 import { getStorageStatus, storageGet, storagePut } from "./storage";
@@ -121,10 +128,20 @@ const productHuntFiltersSchema = z
     priceRange: z.object({ min: z.number(), max: z.number() }).optional(),
     region: regionCodeSchema.optional(),
     category: z.string().optional(),
+    subcategory: z.string().optional(),
+    productType: z.string().optional(),
+    query: z.string().max(200).optional(),
     shipFrom: z.array(shipFromSchema).optional(),
     sort: sortSchema.optional(),
     minRating: z.number().optional(),
     maxShippingDays: z.number().optional(),
+  })
+  .optional();
+
+const searchPaginationSchema = z
+  .object({
+    limit: z.number().int().min(1).max(500).optional(),
+    cursor: z.number().int().min(0).optional(),
   })
   .optional();
 
@@ -166,6 +183,14 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ ctx, input }) => {
+        try {
+          await assertDatabaseAvailable();
+        } catch (err) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: err instanceof Error ? err.message : "Database unavailable",
+          });
+        }
         await assertAuthRateLimit(ctx.req, input.email);
         const settings = await getPlatformSettings();
         if (settings.registration_enabled === false) {
@@ -223,6 +248,14 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ ctx, input }) => {
+        try {
+          await assertDatabaseAvailable();
+        } catch (err) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: err instanceof Error ? err.message : "Database unavailable",
+          });
+        }
         await assertAuthRateLimit(ctx.req, input.email);
         const user = await getUserByEmail(normalizeEmail(input.email));
         if (!user?.passwordHash || !verifyPassword(input.password, user.passwordHash)) {
@@ -349,11 +382,12 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(({ ctx, input }) => deleteSavedSearch(input.id, getCtxUser(ctx).id)),
     getProviderStatus: protectedBase.query(async () => getSearchProviderStatus()),
+    getMarketplaceCoverage: protectedBase.query(async () => getMarketplaceCoverage()),
     getFilterOptions: protectedBase.query(() => ({
       regions: getSupportedRegionOptions(),
       categories: PRODUCT_CATEGORIES.map((c) => ({
         value: c,
-        label: c.charAt(0).toUpperCase() + c.slice(1),
+        label: CATEGORY_LABELS[c],
       })),
       shipFromOptions: SHIP_FROM_OPTIONS,
       sortOptions: SORT_OPTIONS,
@@ -370,13 +404,19 @@ export const appRouter = router({
     deleteFilterPreset: protectedBase
       .input(z.object({ id: z.number() }))
       .mutation(({ ctx, input }) => deleteFilterPreset(input.id, getCtxUser(ctx).id)),
+    getCategoryTree: publicProcedure
+      .input(z.object({ region: regionCodeSchema.optional() }).optional())
+      .query(async ({ input }) => ({
+        tree: await getCategoryTree(input?.region as RegionCode | undefined),
+      })),
     searchProducts: searchProcedure()
       .input(
         z.object({
           query: z.string().min(1),
-          platform: z.enum(["all", "ebay", "amazon", "shopify", "tiktok"]),
+          platform: z.enum(["all", "ebay", "amazon", "shopify", "tiktok", "aliexpress", "cj"]),
           filters: productHuntFiltersSchema,
           live: z.boolean().optional(),
+          pagination: searchPaginationSchema,
         })
       )
       .query(async ({ ctx, input }) => {
@@ -385,13 +425,14 @@ export const appRouter = router({
 
         if (input.live) {
           await assertSearchQuota(user);
+          await assertLiveSearchHourlyLimit(user);
         }
 
         const results = await runProductSearch(
           input.query,
           input.platform,
           input.filters as ProductHuntFilters | undefined,
-          { live: input.live }
+          { live: input.live, pagination: input.pagination }
         );
 
         searchLog.info("Product search completed", {
@@ -426,7 +467,10 @@ export const appRouter = router({
           });
         }
 
-        return { ...results, creditsUsed: results.creditsUsed ?? creditsUsed };
+        return attachSearchResponseTruthLabels({
+          ...results,
+          creditsUsed: results.creditsUsed ?? creditsUsed,
+        });
       }),
   }),
 
@@ -437,6 +481,8 @@ export const appRouter = router({
           region: regionCodeSchema.optional(),
           category: z.string().optional(),
           filters: productHuntFiltersSchema,
+          pagination: searchPaginationSchema,
+          timeframe: z.enum(["7d", "30d", "90d"]).optional(),
         })
       )
       .query(async ({ ctx, input }) => {
@@ -446,6 +492,8 @@ export const appRouter = router({
           region: input.region as RegionCode | undefined,
           category: input.category,
           filters: input.filters as ProductHuntFilters | undefined,
+          pagination: input.pagination,
+          timeframe: input.timeframe,
         });
       }),
     getRegions: publicProcedure.query(() => ({
@@ -457,7 +505,7 @@ export const appRouter = router({
       .query(() => ({
         categories: PRODUCT_CATEGORIES.map((c) => ({
           value: c,
-          label: c.charAt(0).toUpperCase() + c.slice(1),
+          label: CATEGORY_LABELS[c],
         })),
       })),
   }),
@@ -847,15 +895,25 @@ Provide competitive intelligence in JSON format:
           productId: z.string().optional(),
           title: z.string().min(1),
           region: regionCodeSchema.optional(),
+          category: z.string().optional(),
+          targetPrice: z.number().optional(),
         })
       )
-      .query(({ input }) =>
-        getOffersForProduct({
+      .query(async ({ input }) => {
+        const status = getOffersStatus();
+        const configured = status.cj.configured || status.aliexpress.configured;
+        const response = await getOffersForProduct({
           productId: input.productId,
           title: input.title,
           region: input.region as RegionCode | undefined,
-        })
-      ),
+          category: input.category,
+          targetPrice: input.targetPrice,
+        });
+        return attachOffersTruthLabels(response, configured);
+      }),
+    getCatalog: protectedBase
+      .input(z.object({ category: z.string().optional() }))
+      .query(({ input }) => getSupplierCatalog(input.category)),
     getOffersStatus: protectedBase.query(() => getOffersStatus()),
   }),
 
@@ -866,16 +924,22 @@ Provide competitive intelligence in JSON format:
           productId: z.string().optional(),
           title: z.string().min(1),
           region: regionCodeSchema.optional(),
+          category: z.string().optional(),
+          targetPrice: z.number().optional(),
         })
       )
       .query(async ({ input }) => {
+        const status = getOffersStatus();
+        const configured = status.cj.configured || status.aliexpress.configured;
         const response = await getOffersForProduct({
           productId: input.productId,
           title: input.title,
           region: input.region as RegionCode | undefined,
+          category: input.category,
+          targetPrice: input.targetPrice,
         });
         return {
-          ...response,
+          ...attachOffersTruthLabels(response, configured),
           confidenceTier: computeSupplierConfidenceTier(response.offers),
         };
       }),

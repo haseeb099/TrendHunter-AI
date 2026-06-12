@@ -8,6 +8,8 @@ const mockTrendSignal = {
   region: "US",
   momentumScore: 72,
   momentumLabel: "rising" as const,
+  changePercent7d: 8,
+  changePercent30d: 12,
   changePercent90d: 18,
   risingQueries: ["thick yoga mat"],
   interestOverTime: [{ date: "2026-01-01", value: 50 }],

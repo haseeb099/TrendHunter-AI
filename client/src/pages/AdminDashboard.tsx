@@ -51,7 +51,7 @@ import { cn } from "@/lib/utils";
 
 const PLANS: PlanId[] = ["trial", "starter", "pro", "business", "agency"];
 
-export default function AdminDashboard() {
+function AdminDashboardContent() {
   const utils = trpc.useUtils();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<AccountStatus | "all">("all");
@@ -180,7 +180,7 @@ export default function AdminDashboard() {
   };
 
   return (
-    <AdminLayout>
+    <>
       <div className="space-y-8 admin-stagger">
         <AdminPageHeader
           title="Users & support"
@@ -481,6 +481,14 @@ export default function AdminDashboard() {
           resetPassword.isPending
         }
       />
+    </>
+  );
+}
+
+export default function AdminDashboard() {
+  return (
+    <AdminLayout>
+      <AdminDashboardContent />
     </AdminLayout>
   );
 }

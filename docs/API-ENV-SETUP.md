@@ -17,8 +17,8 @@ Never commit `.env` to git.
 | Priority | APIs | Env keys | Enables |
 |----------|------|----------|---------|
 | **P0 — Required** | MySQL, JWT | `DATABASE_URL`, `JWT_SECRET` | App runs, auth works |
-| **P0b — Free catalogs (no key)** | DummyJSON, FakeStore, Shoptera | `FREE_RETAIL_ENABLED`, `SHOPTERA_ENABLED` | Real search without signup |
-| **P1 — Live marketplace search** | eBay, SerpAPI, TikTok | See [Marketplace search](#marketplace-search) | Amazon/eBay/Google Shopping |
+| **P0b — Free catalogs (no key)** | DummyJSON, FakeStore, Shoptera, CJ | `FREE_RETAIL_ENABLED`, `SHOPTERA_ENABLED`, `CJ_API_KEY` | Scheduled ingest — see [FREE-API-PROVIDERS.md](./FREE-API-PROVIDERS.md) |
+| **P1 — Live marketplace search** | eBay, Serper, SerpAPI, TikTok | See [Marketplace search](#marketplace-search) | Amazon/eBay/Google Shopping |
 | **P2 — Trending & regions** | SerpAPI + eBay region config | `SERPAPI_*`, `EBAY_MARKETPLACE_ID`, `DEFAULT_REGION` | Trending by US/UK/EU |
 | **P3 — AI features** | OpenAI-compatible | `OPENAI_API_KEY` | Validation, AI agent, social kit |
 | **P4 — Suppliers** | CJ Dropshipping, AliExpress | `CJ_*`, `ALIEXPRESS_*` | Warehouses, ship-from, MOQ |
@@ -95,6 +95,20 @@ Optional free signup (not wired yet): [ProductSource](https://productsource.io) 
 
 ---
 
+### Serper.dev (Google Shopping — preferred when configured)
+
+**Dashboard:** [https://serper.dev/dashboard](https://serper.dev/dashboard)  
+**Used for:** Google Shopping search (tried before SerpAPI). Free tier ≈ 2,500 queries; set `SERPER_DAILY_CAP` to match your plan.
+
+| Variable | Required | Default | Purpose |
+|----------|----------|---------|---------|
+| `SERPER_API_KEY` | Primary Serper account | — | API key (`X-API-KEY` header) |
+| `SERPER_API_KEYS` | Extra free accounts | — | Comma-separated keys; auto-rotate at weekly cap |
+| `SERPER_WEEKLY_CAP` | No | `2500` | Credits per account per week (Monday UTC) |
+| `SERPER_INGEST_MAX_PER_CYCLE` | No | `40` | Serper calls per hourly ingest cycle |
+
+---
+
 ### SerpAPI (Amazon + Google Shopping + trends)
 
 **Docs:** [https://serpapi.com](https://serpapi.com)  
@@ -155,7 +169,7 @@ These variables support trending feeds, region tabs, and filter defaults. Implem
 | `DEFAULT_REGION` | No | `US` | Default region on home / Discover (`US`, `UK`, `EU`, `GLOBAL`) |
 | `SUPPORTED_REGIONS` | No | `US,UK,EU,GLOBAL` | Comma-separated regions shown in UI |
 | `TRENDING_CACHE_TTL_HOURS` | No | `6` | Hours to cache trending snapshots |
-| `TRENDING_MAX_ITEMS` | No | `40` | Max products per trending feed |
+| `TRENDING_MAX_ITEMS` | No | `500` | Max products per trending feed |
 
 ---
 
@@ -174,7 +188,7 @@ Controls cache-first search, autonomous query expansion, and API budgets for the
 | `TIKTOK_ADS_DAILY_CAP` | No | `10` | Max TikTok Ad Library fetches per day |
 | `DISCOVERY_QUEUE_MAX_PER_RUN` | No | `40` | Max autonomous queries processed per daily ingest |
 | `DISCOVERY_QUEUE_PRIORITY_MIN` | No | `0.4` | Skip generated queries below this priority |
-| `RANKING_VERSION` | No | `v2` | Ranking model: `v1` (legacy fusion) or `v2` (decision engine) |
+| `RANKING_VERSION` | No | `v3` | Ranking model: `v1` (legacy), `v2` (decision engine), or `v3` (launch weights, default) |
 | `HEALTH_PROBE_EXTERNAL` | No | `false` | When `true`, deep health checks probe eBay/SerpAPI/Meta |
 | `INGEST_SECRET` | No | — | Optional auth for HTTP ingest trigger |
 
@@ -193,7 +207,7 @@ Inspired by AliExpress, CJ Dropshipping, and similar sourcing tools.
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `CJ_API_KEY` | Yes | CJ API key |
+| `CJ_API_KEY` | Yes | CJ API key — also enables **Discover → CJ** live product search |
 | `CJ_API_BASE` | No | Default `https://developers.cjdropshipping.com/api2.0/v1` |
 | `CJ_DEFAULT_WAREHOUSE` | No | Preferred warehouse (`US`, `UK`, `CN`) |
 
@@ -208,6 +222,17 @@ Inspired by AliExpress, CJ Dropshipping, and similar sourcing tools.
 | `ALIEXPRESS_APP_SECRET` | Yes | App secret |
 | `ALIEXPRESS_ACCESS_TOKEN` | No | OAuth token (if using authorized endpoints) |
 | `ALIEXPRESS_SHIP_FROM_DEFAULT` | No | Default ship-from filter (`CN`) |
+
+When `CJ_API_KEY` or AliExpress keys are set, **Discover → platform filter** (`?platform=cj` / `?platform=aliexpress&live=true`) and the Suppliers directory show live discovery links. Without keys, supplier catalog rows remain available from the seeded `supplier_catalog` migration.
+
+### Ropeship (optional)
+
+**Used for:** Fulfillment/branding API integration point in live search provider registry
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `ROPESHIP_API_KEY` | Yes (for Ropeship search) | API key |
+| `ROPESHIP_API_BASE` | No | Custom API base URL |
 
 ---
 

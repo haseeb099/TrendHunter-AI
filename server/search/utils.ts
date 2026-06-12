@@ -1,6 +1,13 @@
 import type { ProductSearchFilters, ProductSearchResult } from "@shared/searchTypes";
 
-export type SearchPlatform = "all" | "ebay" | "amazon" | "shopify" | "tiktok";
+export type SearchPlatform =
+  | "all"
+  | "ebay"
+  | "amazon"
+  | "shopify"
+  | "tiktok"
+  | "aliexpress"
+  | "cj";
 
 export function applyPriceFilter(
   results: ProductSearchResult[],

@@ -1,5 +1,7 @@
 import type { RegionCode } from "./searchTypes";
 
+export type TrendWindow = "7d" | "30d" | "90d";
+
 export type TrendInterestPoint = {
   date: string;
   value: number;
@@ -8,9 +10,11 @@ export type TrendInterestPoint = {
 export type TrendSignal = {
   keyword: string;
   region: RegionCode;
-  source: "google_trends" | "reddit" | "manual";
+  source: "google_trends" | "serper" | "reddit" | "manual";
   momentumScore: number;
   momentumLabel: "rising" | "stable" | "declining";
+  changePercent7d: number | null;
+  changePercent30d: number | null;
   changePercent90d: number | null;
   interestOverTime: TrendInterestPoint[];
   relatedQueries: string[];

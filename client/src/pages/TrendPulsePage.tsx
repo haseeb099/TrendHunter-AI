@@ -6,6 +6,8 @@ import { TrendPulsePanel } from "@/components/intelligence/TrendPulsePanel";
 import { MarketDigestCard } from "@/components/intelligence/MarketDigestCard";
 import { IntelligenceVerdict } from "@/components/intelligence/IntelligenceVerdict";
 import { DataCoverageBanner } from "@/components/intelligence/DataCoverageBanner";
+import { TrendWindowSelector } from "@/components/intelligence/TrendWindowSelector";
+import { useTrendWindow } from "@/_core/hooks/useTrendWindow";
 import { trpc } from "@/lib/trpc";
 import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -17,10 +19,12 @@ export default function TrendPulsePage() {
   const [region, setRegion] = useState<RegionCode>("US");
   const [keyword, setKeyword] = useState("");
   const [activeKeyword, setActiveKeyword] = useState("");
+  const { window: timeframe, setWindow: setTimeframe } = useTrendWindow();
 
+  const configQuery = trpc.system.getConfig.useQuery();
   const listQuery = trpc.intelligence.listTrendKeywords.useQuery({ region });
   const intelQuery = trpc.intelligence.getProductIntel.useQuery(
-    { keyword: activeKeyword, region },
+    { keyword: activeKeyword, region, timeframe },
     { enabled: Boolean(activeKeyword.trim()) }
   );
 
@@ -34,6 +38,8 @@ export default function TrendPulsePage() {
     }
     if (reg) setRegion(reg as RegionCode);
   }, [location]);
+
+  const serpConfigured = configQuery.data?.dataPlatform?.serpConfigured ?? false;
 
   return (
     <div className="space-y-8">
@@ -50,11 +56,20 @@ export default function TrendPulsePage() {
 
       <DataCoverageBanner pageId="trend-pulse" />
 
+      {!serpConfigured ? (
+        <Alert>
+          <AlertDescription>
+            Add <code className="text-xs">SERPAPI_KEY</code> or JustSerp credentials to enable live
+            Google Trends scans. Cached data appears after daily ingest.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       <div className="rounded-xl border border-border bg-muted/15 p-4 text-sm text-muted-foreground">
         <p>
           <strong className="text-foreground">How to read this:</strong> The momentum score (0–100)
           combines recent vs older search interest. <em>Rising</em> means more people are searching
-          than 90 days ago. Use rising queries as ad angles and product titles.
+          than in the prior window. Use rising queries as ad angles and product titles.
         </p>
       </div>
 
@@ -77,9 +92,17 @@ export default function TrendPulsePage() {
       {activeKeyword ? (
         <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
           <section className="card-elevated p-5 sm:p-6 space-y-6">
-            <h2 className="font-display font-semibold capitalize">{activeKeyword}</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="font-display font-semibold capitalize">{activeKeyword}</h2>
+              <TrendWindowSelector value={timeframe} onChange={setTimeframe} />
+            </div>
             <IntelligenceVerdict summary={intelQuery.data} stale={intelQuery.data?.stale} />
-            <TrendPulsePanel keyword={activeKeyword} region={region} />
+            <TrendPulsePanel
+              keyword={activeKeyword}
+              region={region}
+              timeframe={timeframe}
+              onTimeframeChange={setTimeframe}
+            />
           </section>
           <aside className="space-y-3">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -101,7 +124,10 @@ export default function TrendPulsePage() {
         </div>
       ) : (
         <section className="space-y-4">
-          <h2 className="font-display font-semibold">Tracked keywords — {region}</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="font-display font-semibold">Tracked keywords — {region}</h2>
+            <TrendWindowSelector value={timeframe} onChange={setTimeframe} />
+          </div>
           {listQuery.isLoading ? (
             <Spinner className="mx-auto" />
           ) : listQuery.data && listQuery.data.length > 0 ? (

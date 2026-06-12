@@ -39,12 +39,14 @@ import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { RegionCode } from "@shared/searchTypes";
+import { useOnboarding } from "@/_core/hooks/useOnboarding";
 import type { SocialKitPayload } from "@shared/socialKitTypes";
 
 const EMPTY_KIT: SocialKitPayload = {};
 
 export default function SocialMediaKit() {
   const [location] = useLocation();
+  const { completeStep } = useOnboarding();
   const utils = trpc.useUtils();
   const [productTitle, setProductTitle] = useState("");
   const [productBenefit, setProductBenefit] = useState("");
@@ -108,6 +110,7 @@ export default function SocialMediaKit() {
     onSuccess: (d) => {
       setKit(d.kit);
       setActiveTab("hashtags");
+      completeStep("social");
       if (d.creditsUsed) void utils.credits.getWallet.invalidate();
       void utils.auth.me.invalidate();
       toast.success("Full kit generated");
@@ -118,6 +121,7 @@ export default function SocialMediaKit() {
       await utils.social.listSavedKits.invalidate();
       await utils.social.getKitLimits.invalidate();
       setLoadedKitId(d.id);
+      completeStep("social");
       toast.success(d.updated ? "Kit updated" : "Kit saved");
     },
     onError: (e) => toast.error(e.message),

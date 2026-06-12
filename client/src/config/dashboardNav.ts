@@ -12,11 +12,12 @@ import {
   Search,
   Settings,
   Sparkles,
-  TrendingUp,
+  Truck,
   Video,
   Users,
   Zap,
   LayoutDashboard,
+  ShoppingBag,
 } from "lucide-react";
 
 export type { DashboardTabId };
@@ -94,6 +95,12 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
         description: "TikTok ad library and creative trends",
         icon: Video,
       },
+      {
+        id: "tiktokshop",
+        label: "TikTok Shop",
+        description: "Viral products on TikTok Shop commerce",
+        icon: ShoppingBag,
+      },
     ],
   },
   {
@@ -109,7 +116,7 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
         id: "suppliers",
         label: "Suppliers",
         description: "Vet contacts and warehouse offers",
-        icon: TrendingUp,
+        icon: Truck,
       },
       {
         id: "social",

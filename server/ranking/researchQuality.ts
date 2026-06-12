@@ -4,12 +4,21 @@ import { getDb } from "../db";
 import { top10Overlap } from "./robustness";
 import type { ProductSearchResult } from "@shared/searchTypes";
 
+export type DataStateBreakdown = {
+  live: number;
+  cached: number;
+  stale: number;
+  unavailable: number;
+  total: number;
+};
+
 export type ResearchQualityScorecard = {
   dataFreshnessPct: number;
   avgProvidersPerQuery: number;
   zeroResultRatePct: number;
   explainabilityPct: number;
   rankStabilityPct: number;
+  dataStateBreakdown: DataStateBreakdown;
   targets: {
     dataFreshness: number;
     marketplaceCoverage: number;
@@ -52,6 +61,14 @@ export async function getResearchQualityScorecard(): Promise<ResearchQualityScor
     rankStability: 95,
   };
 
+  const emptyBreakdown: DataStateBreakdown = {
+    live: 0,
+    cached: 0,
+    stale: 0,
+    unavailable: 0,
+    total: 0,
+  };
+
   if (!db) {
     return {
       dataFreshnessPct: 0,
@@ -59,6 +76,7 @@ export async function getResearchQualityScorecard(): Promise<ResearchQualityScor
       zeroResultRatePct: 100,
       explainabilityPct: 0,
       rankStabilityPct: 0,
+      dataStateBreakdown: emptyBreakdown,
       targets,
     };
   }
@@ -106,12 +124,38 @@ export async function getResearchQualityScorecard(): Promise<ResearchQualityScor
   }
   const rankStabilityPct = Math.round((stablePairs / TEST_QUERY_PAIRS.length) * 100);
 
+  const dataStateBreakdown: DataStateBreakdown = {
+    live: 0,
+    cached: 0,
+    stale: 0,
+    unavailable: 0,
+    total: snapshots.length,
+  };
+  for (const snap of snapshots) {
+    const isFresh = snap.expiresAt.getTime() > now;
+    const payload = snap.payload as { results?: unknown[] } | unknown[];
+    const resultCount = Array.isArray(payload)
+      ? payload.length
+      : Array.isArray((payload as { results?: unknown[] }).results)
+        ? (payload as { results: unknown[] }).results.length
+        : 0;
+
+    if (resultCount === 0) {
+      dataStateBreakdown.unavailable++;
+    } else if (!isFresh) {
+      dataStateBreakdown.stale++;
+    } else {
+      dataStateBreakdown.cached++;
+    }
+  }
+
   return {
     dataFreshnessPct,
     avgProvidersPerQuery: Math.round(avgProvidersPerQuery * 10) / 10,
     zeroResultRatePct,
     explainabilityPct,
     rankStabilityPct,
+    dataStateBreakdown,
     targets,
   };
 }

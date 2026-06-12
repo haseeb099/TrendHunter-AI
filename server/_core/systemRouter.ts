@@ -5,6 +5,9 @@ import { getPlatformSettings } from "../planCatalog";
 import { ENV } from "./env";
 import { isMetaAdLibraryConfigured } from "../intelligence/adLibrary";
 import { isSerpConfigured, isSerpApiConfigured } from "../search/serpapi";
+import { isSerperConfigured, getSerperPoolStatus, serperPoolSummary } from "../search/serper";
+import { getRapidAmazonMonthlyUsage, isRapidAmazonConfigured } from "../search/rapidAmazon";
+import { getAllRapidApiUsage, isRapidApiConfigured } from "../search/rapidApi";
 import { isJustSerpConfigured } from "../search/justserp";
 import { isTikTokAdsConfigured, tikTokAdsProvider } from "../intelligence/tiktokAds";
 import { isRedisConfigured } from "./redis";
@@ -56,6 +59,16 @@ export const systemRouter = router({
         serpApiConfigured: isSerpApiConfigured(),
         justSerpConfigured: isJustSerpConfigured(),
         serpConfigured: isSerpConfigured(),
+        serperConfigured: isSerperConfigured(),
+        serperPool: isSerperConfigured()
+          ? serperPoolSummary(await getSerperPoolStatus())
+          : null,
+        rapidApiConfigured: isRapidApiConfigured(),
+        rapidAmazonConfigured: isRapidAmazonConfigured(),
+        rapidAmazonUsage: isRapidAmazonConfigured()
+          ? await getRapidAmazonMonthlyUsage()
+          : null,
+        rapidApiUsage: isRapidApiConfigured() ? await getAllRapidApiUsage() : null,
         metaAdsConfigured: isMetaAdLibraryConfigured(),
         tiktokAdsConfigured: isTikTokAdsConfigured(),
         tiktokAdsProvider: tikTokAdsProvider(),

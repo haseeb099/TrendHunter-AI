@@ -1,5 +1,6 @@
 import type { ProductSearchResult, RegionCode } from "@shared/searchTypes";
 import { ENV } from "../_core/env";
+import { PROVIDER_FETCH_LIMIT } from "./constants";
 import { resolveRegion } from "./regions";
 import { tiktokShopRequest } from "./tiktokShopClient";
 
@@ -42,12 +43,12 @@ async function searchTikTokOfficial(
   }>({
     method: "POST",
     path: `/affiliate_creator/${version}/open_collaborations/products/search`,
-    query: { page_size: 20 },
+    query: { page_size: PROVIDER_FETCH_LIMIT },
     body: { keyword: query },
   });
 
   const products = data.products ?? data.product_list ?? [];
-  return products.slice(0, 20).map((p) => mapTikTokProduct(p, region, mapping.currency));
+  return products.slice(0, PROVIDER_FETCH_LIMIT).map((p) => mapTikTokProduct(p, region, mapping.currency));
 }
 
 async function searchTikTokThirdParty(
@@ -73,7 +74,7 @@ async function searchScrapeCreators(
     "https://api.scrapecreators.com/v1/tiktok/shop/search";
   const url = new URL(base);
   url.searchParams.set("query", query);
-  url.searchParams.set("amount", "20");
+  url.searchParams.set("amount", String(PROVIDER_FETCH_LIMIT));
 
   const response = await fetch(url, {
     headers: {
@@ -94,7 +95,7 @@ async function searchScrapeCreators(
   };
 
   const items = data.products ?? data.data ?? data.results ?? [];
-  return items.slice(0, 20).map((p) => mapTikTokProduct(p, region, mapping.currency));
+  return items.slice(0, PROVIDER_FETCH_LIMIT).map((p) => mapTikTokProduct(p, region, mapping.currency));
 }
 
 /** JustOneAPI uses GB (not UK) and FR for EU — see docs.justoneapi.com */
@@ -152,7 +153,7 @@ async function searchJustOneApi(
     data.data?.items ??
     data.products ??
     [];
-  return items.slice(0, 20).map((p) => mapTikTokProduct(p, region, mapping.currency));
+  return items.slice(0, PROVIDER_FETCH_LIMIT).map((p) => mapTikTokProduct(p, region, mapping.currency));
 }
 
 function mapTikTokProduct(
@@ -209,8 +210,8 @@ function mapTikTokProduct(
     currency,
     region,
     shipFrom: resolveRegion(region).defaultShipFrom,
-    trendScore: sales && sales > 1000 ? 85 : sales && sales > 100 ? 70 : 55,
-    isTrending: (sales ?? 0) > 500,
+    sourceProvider: "tiktok",
+    isTrending: sales != null && sales > 500 ? true : sales != null ? false : null,
   };
 }
 

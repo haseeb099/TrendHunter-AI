@@ -35,12 +35,22 @@ injectAnalytics();
 
 const queryClient = new QueryClient();
 
-const redirectToLoginIfUnauthorized = (error: unknown) => {
+const PUBLIC_PATH_PREFIXES = ["/login", "/register", "/forgot-password", "/reset-password", "/terms", "/privacy", "/trends/"];
+
+function isPublicAppPath(pathname: string): boolean {
+  if (pathname === "/") return true;
+  return PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
+
+const redirectToLoginIfUnauthorized = (error: unknown, kind: "query" | "mutation") => {
   if (!(error instanceof TRPCClientError)) return;
   if (typeof window === "undefined") return;
 
   const isUnauthorized = error.message === UNAUTHED_ERR_MSG;
   if (isUnauthorized) {
+    // Background mutations (e.g. analytics) may fail for guests — do not redirect or spam console.
+    if (kind === "mutation") return;
+    if (isPublicAppPath(window.location.pathname)) return;
     window.location.href = getLoginUrl();
     return;
   }
@@ -66,7 +76,8 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
 queryClient.getQueryCache().subscribe(event => {
   if (event.type === "updated" && event.action.type === "error") {
     const error = event.query.state.error;
-    redirectToLoginIfUnauthorized(error);
+    redirectToLoginIfUnauthorized(error, "query");
+    if (error instanceof TRPCClientError && error.message === UNAUTHED_ERR_MSG) return;
     console.error("[API Query Error]", error);
   }
 });
@@ -74,7 +85,8 @@ queryClient.getQueryCache().subscribe(event => {
 queryClient.getMutationCache().subscribe(event => {
   if (event.type === "updated" && event.action.type === "error") {
     const error = event.mutation.state.error;
-    redirectToLoginIfUnauthorized(error);
+    redirectToLoginIfUnauthorized(error, "mutation");
+    if (error instanceof TRPCClientError && error.message === UNAUTHED_ERR_MSG) return;
     console.error("[API Mutation Error]", error);
   }
 });

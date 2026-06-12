@@ -1,0 +1,32 @@
+CREATE TABLE IF NOT EXISTS `supplier_catalog` (
+  `id` int AUTO_INCREMENT NOT NULL,
+  `platform` enum('cj','aliexpress') NOT NULL,
+  `category` varchar(64) NOT NULL,
+  `subcategory` varchar(128),
+  `coverageScore` int NOT NULL DEFAULT 80,
+  `regions` json,
+  `searchUrl` text,
+  `notes` text,
+  `createdAt` timestamp NOT NULL DEFAULT (now()),
+  CONSTRAINT `supplier_catalog_id` PRIMARY KEY(`id`)
+);--> statement-breakpoint
+INSERT INTO `supplier_catalog` (`platform`, `category`, `subcategory`, `coverageScore`, `regions`, `searchUrl`, `notes`) VALUES
+('cj', 'electronics', 'Phone accessories', 85, '["US","UK","EU","GLOBAL"]', 'https://cjdropshipping.com/search?q=phone+accessories', 'Strong US/EU warehouse coverage'),
+('cj', 'electronics', 'Smart home', 80, '["US","UK","EU"]', 'https://cjdropshipping.com/search?q=smart+home', 'US warehouse for faster shipping'),
+('cj', 'home', 'Kitchen gadgets', 88, '["US","UK","EU","GLOBAL"]', 'https://cjdropshipping.com/search?q=kitchen', 'High SKU count'),
+('cj', 'home', 'Home decor', 82, '["US","UK","GLOBAL"]', 'https://cjdropshipping.com/search?q=home+decor', NULL),
+('cj', 'beauty', 'Skincare', 78, '["US","UK","EU"]', 'https://cjdropshipping.com/search?q=skincare', 'Check MOQ on branded items'),
+('cj', 'beauty', 'Hair tools', 80, '["US","GLOBAL"]', 'https://cjdropshipping.com/search?q=hair', NULL),
+('cj', 'fashion', 'Activewear', 75, '["US","UK"]', 'https://cjdropshipping.com/search?q=activewear', 'Size charts vary'),
+('cj', 'pet', 'Pet supplies', 83, '["US","UK","EU"]', 'https://cjdropshipping.com/search?q=pet', 'Good repeat-buy niches'),
+('aliexpress', 'electronics', 'Earbuds & audio', 90, '["US","UK","EU","GLOBAL"]', 'https://www.aliexpress.com/wholesale?SearchText=wireless+earbuds', 'Lowest unit costs'),
+('aliexpress', 'electronics', 'LED lighting', 88, '["GLOBAL"]', 'https://www.aliexpress.com/wholesale?SearchText=led+strip', 'Longer ship times from CN'),
+('aliexpress', 'home', 'Storage & organization', 86, '["GLOBAL"]', 'https://www.aliexpress.com/wholesale?SearchText=storage+organizer', NULL),
+('aliexpress', 'home', 'Bedding', 80, '["GLOBAL"]', 'https://www.aliexpress.com/wholesale?SearchText=bedding', NULL),
+('aliexpress', 'beauty', 'Makeup tools', 84, '["GLOBAL"]', 'https://www.aliexpress.com/wholesale?SearchText=makeup+brush', NULL),
+('aliexpress', 'beauty', 'Nail art', 82, '["GLOBAL"]', 'https://www.aliexpress.com/wholesale?SearchText=nail+art', NULL),
+('aliexpress', 'fashion', 'Jewelry', 87, '["GLOBAL"]', 'https://www.aliexpress.com/wholesale?SearchText=jewelry', 'High margin potential'),
+('aliexpress', 'sports', 'Fitness accessories', 85, '["GLOBAL"]', 'https://www.aliexpress.com/wholesale?SearchText=fitness', NULL),
+('aliexpress', 'toys', 'Educational toys', 79, '["GLOBAL"]', 'https://www.aliexpress.com/wholesale?SearchText=educational+toy', NULL),
+('aliexpress', 'automotive', 'Car accessories', 81, '["GLOBAL"]', 'https://www.aliexpress.com/wholesale?SearchText=car+accessory', NULL),
+('aliexpress', 'pet', 'Pet toys', 83, '["GLOBAL"]', 'https://www.aliexpress.com/wholesale?SearchText=pet+toy', NULL);

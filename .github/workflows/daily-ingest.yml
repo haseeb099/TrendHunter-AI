@@ -9,7 +9,7 @@ on:
 jobs:
   ingest:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -25,25 +25,63 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Run database migrations
+        run: pnpm db:migrate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
       - name: Run daily ingest
         run: pnpm ingest:daily
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          APP_ID: ${{ secrets.APP_ID }}
+          # Search & discovery
+          SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
+          SERPER_API_KEYS: ${{ secrets.SERPER_API_KEYS }}
+          SERPER_WEEKLY_CAP: "2500"
+          SERPER_INGEST_MAX_PER_CYCLE: "20"
           SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
+          SERPAPI_DAILY_CAP: "5"
+          SEARCHAPI_KEY: ${{ secrets.SEARCHAPI_KEY }}
+          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
+          RAPIDAPI_ENABLED: "true"
+          RAPIDAPI_INGEST_MAX_PER_CYCLE: "0"
+          # Marketplaces & suppliers
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
           EBAY_ENV: ${{ secrets.EBAY_ENV }}
           CJ_API_KEY: ${{ secrets.CJ_API_KEY }}
+          CJ_DAILY_POINTS_CAP: "200"
+          CJ_MIN_INTERVAL_MS: "1000"
+          ALIEXPRESS_APP_KEY: ${{ secrets.ALIEXPRESS_APP_KEY }}
+          ALIEXPRESS_APP_SECRET: ${{ secrets.ALIEXPRESS_APP_SECRET }}
+          # Intelligence
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          META_ADS_DAILY_CAP: "8"
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # Email / app
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
           APP_URL: ${{ secrets.APP_URL }}
-          FREE_RETAIL_ENABLED: "true"
-          TRENDING_CACHE_TTL_HOURS: "24"
-          SERPAPI_DAILY_CAP: "3"
-          META_ADS_DAILY_CAP: "10"
-          SEARCHAPI_KEY: ${{ secrets.SEARCHAPI_KEY }}
           INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
-          TIKTOK_ADS_DAILY_CAP: "10"
+          # Ingest tuning (respect free-tier limits)
+          FREE_RETAIL_ENABLED: "false"
+          STRICT_TRUTH_MODE: "true"
+          SHOPTERA_ENABLED: "true"
+          SHOPTERA_HOURLY_CAP: "300"
+          TRENDING_CACHE_TTL_HOURS: "24"
+          INGEST_REGIONS: "US,UK"
+          INGEST_LIVE_SEARCH_BUDGET: "25"
+          INGEST_HOURLY_LIVE_SEARCH_BUDGET: "300"
+          INGEST_TRENDING_MAX_CATEGORIES: "4"
+          DATA_RETENTION_DAYS: "90"
+          DISCOVERY_QUEUE_MAX_PER_RUN: "15"
+          TIKTOK_ADS_DAILY_CAP: "8"
+          INGEST_SCHEDULER_ENABLED: "false"
+
+      - name: Ingest summary
+        if: always()
+        run: |
+          echo "Daily ingest finished. Check logs above for apiCounts and errors."

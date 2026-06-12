@@ -120,6 +120,69 @@
       "when": 1780898000000,
       "tag": "0016_research_engine",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1780899000000,
+      "tag": "0017_category_taxonomy",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1780900000000,
+      "tag": "0018_supplier_catalog",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "5",
+      "when": 1780901000000,
+      "tag": "0019_canonical_trend_score",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "5",
+      "when": 1780902000000,
+      "tag": "0020_trending_ingest_queue",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "5",
+      "when": 1780903000000,
+      "tag": "0021_api_usage_hourly",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "5",
+      "when": 1780904000000,
+      "tag": "0022_api_usage_weekly",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "5",
+      "when": 1780905000000,
+      "tag": "0023_api_usage_monthly_amazon_categories",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "5",
+      "when": 1780906000000,
+      "tag": "0024_rapid_api_query_log",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "5",
+      "when": 1780907000000,
+      "tag": "0025_ingest_retries_columns",
+      "breakpoints": true
     }
   ]
 }

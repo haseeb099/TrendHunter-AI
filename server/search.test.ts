@@ -311,8 +311,34 @@ describe("filters and normalize", () => {
     expect(filtered[0]?.rating).toBe(4.5);
   });
 
-  it("normalizeProduct adds currency and trend score", () => {
-    const normalized = normalizeProduct(
+  it("normalizeProduct rejects placeholder prices in strict mode", () => {
+    const rejected = normalizeProduct(
+      {
+        id: "x",
+        title: "Test",
+        price: "N/A",
+        platform: "ebay",
+      },
+      "US",
+      { strictTruth: true }
+    );
+    expect(rejected).toBeNull();
+
+    const zeroPrice = normalizeProduct(
+      {
+        id: "x",
+        title: "Test",
+        price: "0.00",
+        platform: "ebay",
+      },
+      "US",
+      { strictTruth: true }
+    );
+    expect(zeroPrice).toBeNull();
+  });
+
+  it("normalizeProduct adds currency; strict mode omits heuristic trend score", () => {
+    const strict = normalizeProduct(
       {
         id: "x",
         title: "Test",
@@ -323,10 +349,26 @@ describe("filters and normalize", () => {
       },
       "UK"
     );
-    expect(normalized.currency).toBe("GBP");
-    expect(normalized.trendScore).toBeGreaterThan(50);
-    expect(normalized.trendScoreInputs?.ratingBoost).toBeGreaterThan(0);
-    expect(normalized.trendScoreInputs?.shippingBoost).toBeGreaterThan(0);
+    expect(strict.currency).toBe("GBP");
+    expect(strict.trendScore).toBeUndefined();
+    expect(strict.categoryInferred).toBe(true);
+
+    const heuristic = normalizeProduct(
+      {
+        id: "x",
+        title: "Test",
+        price: 10,
+        platform: "ebay",
+        rating: 4.8,
+        shippingDays: 2,
+      },
+      "UK",
+      { allowHeuristicScores: true }
+    );
+    expect(heuristic.trendScore).toBeDefined();
+    expect(heuristic.trendScore!).toBeGreaterThanOrEqual(50);
+    expect(heuristic.trendScoreInputs?.ratingBoost).toBeGreaterThan(0);
+    expect(heuristic.trendScoreInputs?.shippingBoost).toBeGreaterThan(0);
   });
 
   it("inferTrendScore returns explainable inputs", () => {
@@ -351,6 +393,9 @@ describe("filters and normalize", () => {
     expect(uk.ebayMarketplaceId).toBe("EBAY_GB");
     expect(uk.amazonDomain).toBe("amazon.co.uk");
     expect(resolveRegion("UK").currency).toBe("GBP");
+    expect(uk.cjCountryCode).toBe("UK");
+    expect(uk.aliexpressShipFrom).toBe("CN");
+    expect(uk.shopteraOriginCountry).toBe("GB");
   });
 
 });
@@ -376,7 +421,9 @@ describe("getSearchProviderStatus", () => {
     expect(status.find((p) => p.id === "ebay")?.configured).toBe(false);
     expect(status.find((p) => p.id === "amazon")?.configured).toBe(false);
     expect(status.find((p) => p.id === "tiktok")?.configured).toBe(false);
-    expect(status.find((p) => p.id === "free_retail")?.configured).toBe(true);
+    expect(status.find((p) => p.id === "free_retail")?.configured).toBe(false);
+    expect(status.find((p) => p.id === "cj")?.configured).toBe(false);
+    expect(status.find((p) => p.id === "ropeship")?.configured).toBe(false);
     expect(status.find((p) => p.id === "mock")).toBeUndefined();
   });
 });

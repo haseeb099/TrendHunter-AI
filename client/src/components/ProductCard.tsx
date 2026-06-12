@@ -13,6 +13,7 @@ import {
   Eye,
   LineChart,
   MessageSquare,
+  AlertTriangle,
 } from "lucide-react";
 import type { ProductSearchResult } from "@shared/searchTypes";
 import { formatProductPrice } from "@shared/searchTypes";
@@ -21,6 +22,9 @@ import { Link } from "wouter";
 import { getDashboardPath } from "@/config/dashboardNav";
 import { keywordToSlug } from "@shared/keywordUtils";
 import { TrendScoreExplain } from "@/components/intelligence/TrendScoreExplain";
+import { DataFreshnessBadge } from "@/components/intelligence/DataFreshnessBadge";
+import { SupplierMatchBadge } from "@/components/product-workspace/SupplierMatchBadge";
+import { useTrendWindow } from "@/_core/hooks/useTrendWindow";
 import { useProductAnalytics } from "@/_core/hooks/useProductAnalytics";
 import { useEffect, useRef } from "react";
 
@@ -47,8 +51,15 @@ export function ProductCard({
   showRankReason = false,
 }: ProductCardProps) {
   const currency = product.currency ?? "USD";
+  const { label: trendWindowLabel } = useTrendWindow();
   const { track } = useProductAnalytics();
   const impressionSent = useRef(false);
+  const sourcingProviderLabel =
+    product.platform === "cj" || product.sourceProvider === "cj"
+      ? "CJ Dropshipping"
+      : product.platform === "aliexpress" || product.sourceProvider === "aliexpress"
+        ? "AliExpress"
+        : null;
 
   useEffect(() => {
     if (impressionSent.current) return;
@@ -123,12 +134,33 @@ export function ProductCard({
             {showTrendBadge && product.isTrending ? (
               <Badge className="text-[11px] bg-primary/10 text-primary border-primary/20">
                 <TrendingUp className="w-3 h-3 mr-1" />
-                Trending
+                Trending · {trendWindowLabel}
               </Badge>
             ) : null}
-            {product.sourceProvider ? (
+            {product.supplierMatchState && product.supplierMatchState !== "none" ? (
+              <SupplierMatchBadge matchState={product.supplierMatchState} compact />
+            ) : null}
+            {sourcingProviderLabel ? (
+              <Badge variant="secondary" className="text-[10px] gap-1">
+                <Truck className="w-3 h-3" />
+                {sourcingProviderLabel}
+              </Badge>
+            ) : null}
+            {product.sourceProvider && !sourcingProviderLabel ? (
               <Badge variant="outline" className="text-[10px] capitalize">
                 via {product.sourceProvider.replace("_", " ")}
+              </Badge>
+            ) : null}
+            {product.dataLabel ? (
+              <DataFreshnessBadge
+                state={product.dataState}
+                label={product.dataLabel}
+              />
+            ) : null}
+            {product.inferredScores ? (
+              <Badge variant="outline" className="text-[10px] gap-1 text-amber-700 border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800">
+                <AlertTriangle className="w-3 h-3" />
+                Estimated scores
               </Badge>
             ) : null}
             {product.supplier ? (

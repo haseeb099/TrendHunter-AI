@@ -43,8 +43,10 @@ describe("ProductWhyPanel", () => {
     expect(
       screen.getByText("Rising search interest with balanced competition signals.")
     ).toBeInTheDocument();
-    expect(screen.getByText(/Trend momentum: 82\/100/)).toBeInTheDocument();
-    expect(screen.getByText(/Margin spread: 75\/100/)).toBeInTheDocument();
+    expect(screen.getByText("Trend momentum")).toBeInTheDocument();
+    expect(screen.getByText("Margin spread")).toBeInTheDocument();
+    expect(screen.getByText(/82\/100 · weight 18%/)).toBeInTheDocument();
+    expect(screen.getByText(/75\/100 · weight 14%/)).toBeInTheDocument();
   });
 
   it("falls back to rankReason when explanation summary is missing", () => {

@@ -1,33 +1,46 @@
 import type { ProductIntelligenceSummary, RegionCode } from "@shared/searchTypes";
-import type { AdLibrarySnapshot, IntelCoverageLevel, TrendSignal } from "@shared/intelligenceTypes";
+import type { AdLibrarySnapshot, IntelCoverageLevel, TrendSignal, TrendWindow } from "@shared/intelligenceTypes";
 import { getTrendSignal } from "./trends";
 import { getAdLibrarySnapshot } from "./adLibrary";
+import { getTikTokAdsSnapshot } from "./tiktokAds";
 
 export async function getProductIntelligence(
   keyword: string,
-  region: RegionCode
+  region: RegionCode,
+  options?: { timeframe?: TrendWindow }
 ): Promise<ProductIntelligenceSummary> {
   const kw = keyword.trim();
-  const [trend, ads] = await Promise.all([
-    getTrendSignal(kw, region),
+  const [trend, ads, tiktok] = await Promise.all([
+    getTrendSignal(kw, region, { timeframe: options?.timeframe }),
     getAdLibrarySnapshot(kw, region),
+    getTikTokAdsSnapshot(kw, region),
   ]);
 
-  const fetchedAt = [trend?.fetchedAt, ads?.fetchedAt]
+  const fetchedAt = [trend?.fetchedAt, ads?.fetchedAt, tiktok?.fetchedAt]
     .filter(Boolean)
     .sort()
     .reverse()[0] ?? null;
+
+  const timeframe = options?.timeframe ?? "90d";
+  const changePercent =
+    timeframe === "7d"
+      ? trend?.changePercent7d ?? null
+      : timeframe === "30d"
+        ? trend?.changePercent30d ?? null
+        : trend?.changePercent90d ?? null;
 
   return {
     keyword: kw,
     region,
     trendMomentum: trend?.momentumScore ?? null,
     trendLabel: trend?.momentumLabel ?? null,
-    changePercent90d: trend?.changePercent90d ?? null,
+    changePercent90d: changePercent,
     activeAdCount: ads?.activeAdCount ?? null,
     advertiserCount: ads?.advertiserCount ?? null,
+    tiktokActiveAdCount: tiktok?.activeAdCount ?? null,
+    tiktokAdvertiserCount: tiktok?.advertiserCount ?? null,
     fetchedAt,
-    stale: Boolean(trend?.stale || ads?.stale),
+    stale: Boolean(trend?.stale || ads?.stale || tiktok?.stale),
   };
 }
 

@@ -6,10 +6,19 @@ export type ProductHuntFilters = {
   priceRange?: { min: number; max: number };
   region?: RegionCode;
   category?: string;
+  subcategory?: string;
+  productType?: string;
+  /** Filter by product title (Discover toolbar search). */
+  query?: string;
   shipFrom?: ShipFromCode[];
   sort?: SortOption;
   minRating?: number;
   maxShippingDays?: number;
+};
+
+export type SearchPagination = {
+  limit?: number;
+  cursor?: number;
 };
 
 /** @deprecated Use ProductHuntFilters */
@@ -42,12 +51,25 @@ export type ProductSearchResult = {
   region?: RegionCode;
   currency?: string;
   category?: string;
+  subcategory?: string;
+  productType?: string;
+  taxonomyId?: number;
   shipFrom?: ShipFromCode;
   warehouse?: string;
   trendScore?: number;
   trendScoreInputs?: TrendScoreInputs;
   moq?: number;
-  isTrending?: boolean;
+  isTrending?: boolean | null;
+  /** True when category was inferred from title (no provider category). */
+  categoryInferred?: boolean;
+  /** Per-product freshness / provenance state. */
+  dataState?: DataState;
+  /** Human-readable freshness label, e.g. "Live from Amazon". */
+  dataLabel?: string;
+  /** True when ranking used heuristic fallbacks for missing signals. */
+  inferredScores?: boolean;
+  /** Supplier match quality (exact/similar/none) when offers are resolved. */
+  supplierMatchState?: "exact" | "similar" | "none";
   /** Human-readable explanation for Discover ranking (server-computed). */
   rankReason?: string;
   /** Canonical product graph identity (cross-platform dedupe). */
@@ -73,8 +95,17 @@ export type RankingExplanation = {
     weight: number;
     contribution: number;
   }>;
+  /** Full signal breakdown (all active ranking signals). */
+  signals?: Array<{
+    name: string;
+    score: number;
+    weight: number;
+    contribution: number;
+  }>;
   confidence: "high" | "medium" | "low";
   staleFeatures?: boolean;
+  /** True when one or more ranking signals used heuristic fallbacks. */
+  inferredScores?: boolean;
 };
 
 export type ProductOffer = {
@@ -95,20 +126,45 @@ export type ProductOffer = {
   landedCost: number;
 };
 
+export type SupplierMatchState = "exact" | "similar" | "none";
+
 export type ProductOffersResponse = {
   offers: ProductOffer[];
   dataMode: DataMode;
   cachedAt?: string;
   stale?: boolean;
+  /** How closely supplier offers match the searched product */
+  matchState?: SupplierMatchState;
+  /** Human-readable explanation of match quality */
+  message?: string;
 };
 
 export type SearchProviderId =
   | "ebay"
   | "amazon"
   | "google_shopping"
+  | "serper"
+  | "serper_web"
+  | "serper_images"
+  | "serper_news"
   | "tiktok"
+  | "aliexpress"
+  | "cj"
+  | "ropeship"
   | "free_retail"
-  | "shoptera";
+  | "shoptera"
+  | "rapid_product"
+  | "rapid_google"
+  | "rapid_etsy"
+  | "rapid_amazon_scraper"
+  | "rapid_lazada"
+  | "rapid_amazon"
+  | "rapid_ebay"
+  | "rapid_walmart"
+  | "rapid_aliexpress"
+  | "rapid_web"
+  | "rapid_news"
+  | "rapid_news_api";
 
 export type SearchProviderTier = "free" | "paid";
 
@@ -121,6 +177,22 @@ export type SearchProviderStatus = {
   platforms: string[];
   tier: SearchProviderTier;
   note?: string;
+};
+
+export type SupplierPlatformId = "cj" | "aliexpress";
+
+export type SupplierPlatformStatus = {
+  id: SupplierPlatformId;
+  label: string;
+  configured: boolean;
+  /** live = API keys configured; catalog = static directory only */
+  mode: "live" | "catalog";
+  note?: string;
+};
+
+export type MarketplaceCoverage = {
+  search: SearchProviderStatus[];
+  suppliers: SupplierPlatformStatus[];
 };
 
 export type DataMode = "cached" | "live";
@@ -144,6 +216,10 @@ export function resolveDataState(options: {
 export type ProductSearchResponse = {
   results: ProductSearchResult[];
   sources: SearchProviderId[];
+  /** Total matches before pagination slice */
+  totalCount?: number;
+  /** Offset cursor for next page, undefined when no more results */
+  nextCursor?: number;
   /** @deprecated Legacy snapshots only — new responses always false */
   isDemo?: boolean;
   warnings?: string[];
@@ -157,6 +233,33 @@ export type ProductSearchResponse = {
   creditsUsed?: number;
   /** Adjacent queries suggested on zero-result (S21) */
   recoverySuggestions?: string[];
+  /** Per-provider availability for live search (configured, skipped, failed). */
+  providerAvailability?: SearchProviderAvailability[];
+};
+
+export type SearchProviderAvailability = {
+  id: SearchProviderId;
+  label: string;
+  available: boolean;
+  unavailableReason?: string;
+};
+
+export type CategoryTaxonomyRow = {
+  id: number;
+  rootCategory: string;
+  subcategory: string | null;
+  productType: string | null;
+  useCase: string | null;
+  audience: string | null;
+  priceBand: string | null;
+  regionRelevance: string | null;
+};
+
+export type CategoryTreeNode = {
+  id: number;
+  label: string;
+  value: string;
+  children?: CategoryTreeNode[];
 };
 
 export type ProductIntelligenceSummary = {
@@ -167,6 +270,8 @@ export type ProductIntelligenceSummary = {
   changePercent90d: number | null;
   activeAdCount: number | null;
   advertiserCount: number | null;
+  tiktokActiveAdCount: number | null;
+  tiktokAdvertiserCount: number | null;
   fetchedAt: string | null;
   /** True when any underlying intel snapshot was served past TTL */
   stale?: boolean;
@@ -175,15 +280,39 @@ export type ProductIntelligenceSummary = {
 export const PRODUCT_CATEGORIES = [
   "electronics",
   "home",
+  "garden",
   "beauty",
   "fashion",
+  "jewelry",
   "sports",
   "toys",
-  "automotive",
+  "baby",
   "pet",
+  "automotive",
+  "health",
+  "office",
+  "tools",
 ] as const;
 
 export type ProductCategory = (typeof PRODUCT_CATEGORIES)[number];
+
+/** Human-readable labels for root browse categories (Amazon / CJ / AliExpress aligned). */
+export const CATEGORY_LABELS: Record<ProductCategory, string> = {
+  electronics: "Electronics",
+  home: "Home & Kitchen",
+  garden: "Garden & Outdoor",
+  beauty: "Beauty & Personal Care",
+  fashion: "Fashion & Apparel",
+  jewelry: "Jewelry & Watches",
+  sports: "Sports & Outdoors",
+  toys: "Toys & Games",
+  baby: "Baby & Nursery",
+  pet: "Pet Supplies",
+  automotive: "Automotive",
+  health: "Health & Wellness",
+  office: "Office & School",
+  tools: "Tools & Home Improvement",
+};
 
 export const REGION_LABELS: Record<RegionCode, string> = {
   US: "United States",

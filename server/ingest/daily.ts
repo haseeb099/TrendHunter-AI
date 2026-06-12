@@ -2,9 +2,9 @@ import { eq } from "drizzle-orm";
 
 import { ingestRuns } from "../../drizzle/schema";
 
-import { getDb } from "../db";
+import { getDb, pruneDuplicateTrendingSnapshots } from "../db";
 
-import { ingestFreeCatalog, pruneOldCatalog } from "../dataPlatform/catalog";
+import { ingestFreeCatalog } from "../dataPlatform/catalog";
 
 import { ingestTrendKeywords } from "../intelligence/trends";
 
@@ -12,7 +12,7 @@ import { ingestAdKeywords } from "../intelligence/adLibrary";
 
 import { ingestTikTokAdKeywords } from "../intelligence/tiktokAds";
 
-import { refreshTrendingSnapshots } from "./trendingRefresh";
+import { runTrendingIngestCycle } from "./trendingCycle";
 
 import type { RegionCode } from "@shared/searchTypes";
 
@@ -30,6 +30,12 @@ import {
 import { computeSnapshotDiffs } from "../dataPlatform/snapshotDiff";
 
 import { processIngestRetries } from "./ingestRetries";
+import { resetIngestLiveBudget, getIngestLiveBudgetRemaining } from "./liveBudget";
+import { pruneStalePlatformData } from "./dataRetention";
+import { syncAmazonCategoriesFromRapidApi } from "../search/amazonCategorySync";
+import { runRapidApiIngestCycle } from "../search/rapidApi/ingest";
+import { runFreeProviderIngestCycle } from "./freeProviderCycle";
+import { runSerperIngestCycle } from "./serperCycle";
 
 
 
@@ -65,6 +71,13 @@ export async function runDailyIngest(): Promise<{
 
   log.info("daily_ingest_start");
 
+  resetIngestLiveBudget();
+
+  const pruned = await pruneDuplicateTrendingSnapshots();
+  if (pruned > 0) {
+    log.info("trending_snapshots_pruned", { deleted: pruned });
+  }
+
   const db = await getDb();
 
   const apiCounts: Record<string, number> = {};
@@ -85,7 +98,8 @@ export async function runDailyIngest(): Promise<{
 
 
 
-  const regions: RegionCode[] = ENV.supportedRegions;
+  const regions: RegionCode[] = ENV.ingestRegions;
+  const intelRegions: RegionCode[] = ENV.supportedRegions;
 
 
 
@@ -95,17 +109,57 @@ export async function runDailyIngest(): Promise<{
 
     apiCounts.catalog_products = catalogCount;
 
-    await pruneOldCatalog();
-
   } catch (err) {
 
     errors.push(`catalog: ${err instanceof Error ? err.message : String(err)}`);
 
   }
 
+  try {
+    const amazonCat = await syncAmazonCategoriesFromRapidApi(regions);
+    apiCounts.amazon_category_syncs = amazonCat.synced;
+    apiCounts.amazon_taxonomy_enriched = amazonCat.enriched;
+    if (amazonCat.errors.length > 0) {
+      errors.push(...amazonCat.errors.map((e) => `amazon_categories: ${e}`));
+    }
+  } catch (err) {
+    errors.push(`amazon_categories: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
+  try {
+    const rapid = await runRapidApiIngestCycle("daily");
+    apiCounts.rapid_api_calls = rapid.calls;
+    apiCounts.rapid_api_stored = rapid.stored;
+    apiCounts.rapid_api_skipped = rapid.skipped;
+    if (rapid.budgets) {
+      apiCounts.rapid_api_budgets = Object.keys(rapid.budgets).length;
+    }
+    if (rapid.errors.length > 0) {
+      errors.push(...rapid.errors.map((e) => `rapid_api: ${e}`));
+    }
+  } catch (err) {
+    errors.push(`rapid_api: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
-  for (const region of regions) {
+  try {
+    const free = await runFreeProviderIngestCycle("daily");
+    apiCounts.free_shoptera = free.stats.shoptera;
+    apiCounts.free_cj = free.stats.cj;
+    apiCounts.free_retail = free.stats.free_retail;
+    apiCounts.free_provider_stored = free.stats.stored;
+  } catch (err) {
+    errors.push(`free_providers: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  try {
+    const serper = await runSerperIngestCycle("daily");
+    apiCounts.serper_calls = serper.calls;
+    apiCounts.serper_stored = serper.stored;
+  } catch (err) {
+    errors.push(`serper: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  for (const region of intelRegions) {
 
     try {
 
@@ -168,20 +222,16 @@ export async function runDailyIngest(): Promise<{
 
 
 
-  for (const region of regions) {
-
-    try {
-
-      await refreshTrendingSnapshots(region);
-
-      apiCounts[`trending_${region}`] = 1;
-
-    } catch (err) {
-
-      errors.push(`trending/${region}: ${err instanceof Error ? err.message : String(err)}`);
-
+  try {
+    const trending = await runTrendingIngestCycle("daily");
+    apiCounts.trending_queue_processed = trending.processed;
+    apiCounts.trending_queue_seeded = trending.seeded;
+    apiCounts.trending_hourly_used = trending.hourlyUsage.used;
+    if (trending.errors.length > 0) {
+      errors.push(...trending.errors.slice(0, 10).map((e) => `trending_queue: ${e}`));
     }
-
+  } catch (err) {
+    errors.push(`trending_queue: ${err instanceof Error ? err.message : String(err)}`);
   }
 
 
@@ -236,7 +286,13 @@ export async function runDailyIngest(): Promise<{
 
   }
 
-
+  try {
+    const retention = await pruneStalePlatformData();
+    apiCounts.data_retention_deleted = Object.values(retention).reduce((s, n) => s + n, 0);
+    apiCounts.live_search_budget_remaining = getIngestLiveBudgetRemaining();
+  } catch (err) {
+    errors.push(`data_retention: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   const status =
 

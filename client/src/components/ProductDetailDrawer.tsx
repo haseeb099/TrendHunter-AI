@@ -15,7 +15,7 @@ import { Alert } from "@/components/ui/alert";
 import { ProductValidationPanel } from "@/components/product-workspace/ProductValidationPanel";
 import { ProductProfitPanel } from "@/components/product-workspace/ProductProfitPanel";
 import { ProductCompetitorPanel } from "@/components/product-workspace/ProductCompetitorPanel";
-import { ProductIntelligenceHub } from "@/components/intelligence/ProductIntelligenceHub";
+import { MiniIntelPanel } from "@/components/intelligence/MiniIntelPanel";
 import { PublicProductIntelligence } from "@/components/intelligence/PublicProductIntelligence";
 import { DataFreshnessBadge } from "@/components/intelligence/DataFreshnessBadge";
 import { TrendScoreExplain } from "@/components/intelligence/TrendScoreExplain";
@@ -47,6 +47,7 @@ import { ProductWhyPanel } from "@/components/product-workspace/ProductWhyPanel"
 import { ProductDeltaPanel } from "@/components/product-workspace/ProductDeltaPanel";
 import { CategoryWinnersPanel } from "@/components/product-workspace/CategoryWinnersPanel";
 import { SupplierConfidencePanel } from "@/components/product-workspace/SupplierConfidencePanel";
+import { SupplierMatchBadge } from "@/components/product-workspace/SupplierMatchBadge";
 import { CompetitorPressurePanel } from "@/components/product-workspace/CompetitorPressurePanel";
 import { NextMovesPanel } from "@/components/product-workspace/NextMovesPanel";
 
@@ -99,6 +100,8 @@ export function ProductDetailDrawer({
       productId: product?.id,
       title: product?.title ?? "",
       region: product?.region,
+      category: product?.category,
+      targetPrice: product?.price,
     },
     { enabled: open && Boolean(product?.title) && canOffers && !guestMode }
   );
@@ -195,6 +198,18 @@ export function ProductDetailDrawer({
                   Trending
                 </Badge>
               ) : null}
+              {product.dataLabel ? (
+                <DataFreshnessBadge
+                  state={product.dataState}
+                  label={product.dataLabel}
+                  className="[&>span:last-child]:hidden"
+                />
+              ) : null}
+              {product.inferredScores ? (
+                <Badge variant="outline" className="bg-background/70 border-amber-300 text-amber-800 text-[10px]">
+                  Estimated scores
+                </Badge>
+              ) : null}
               {product.trendScore !== undefined ? (
                 <Badge variant="outline" className="bg-background/70 border-background/40 gap-1">
                   <TrendScoreExplain
@@ -242,6 +257,10 @@ export function ProductDetailDrawer({
                     Suppliers
                     {!canOffers ? <Lock className="w-3 h-3 opacity-60" /> : null}
                   </TabsTrigger>
+                  <TabsTrigger value="profit" className={cn(drawerTabClass, "gap-1")}>
+                    <Calculator className="w-3 h-3 hidden sm:inline" />
+                    Profit
+                  </TabsTrigger>
                   <TabsTrigger
                     value="validate"
                     disabled={!canValidate}
@@ -250,10 +269,6 @@ export function ProductDetailDrawer({
                     <Zap className="w-3 h-3 hidden sm:inline" />
                     Validate
                     {!canValidate ? <Lock className="w-3 h-3 opacity-60" /> : null}
-                  </TabsTrigger>
-                  <TabsTrigger value="profit" className={cn(drawerTabClass, "gap-1")}>
-                    <Calculator className="w-3 h-3 hidden sm:inline" />
-                    Profit
                   </TabsTrigger>
                   <TabsTrigger value="competitors" disabled={!canSpy} className={drawerTabClass}>
                     Spy
@@ -306,29 +321,6 @@ export function ProductDetailDrawer({
               <CategoryWinnersPanel product={product} region={product.region} />
               <NextMovesPanel product={product} />
 
-              {product.rankReason ? (
-                <p className="text-xs text-muted-foreground rounded-lg border border-border bg-muted/20 px-3 py-2 leading-relaxed">
-                  <span className="font-medium text-foreground">Why trending: </span>
-                  {product.rankReason}
-                </p>
-              ) : null}
-
-              {product.rankReason ? (
-                <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-                    Why in Discover
-                  </p>
-                  <p className="text-sm text-foreground leading-snug">{product.rankReason}</p>
-                </div>
-              ) : null}
-
-              {product.trendScoreInputs && product.trendScore != null ? (
-                <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground">Why this trend score?</p>
-                  <TrendScoreExplain score={product.trendScore} inputs={product.trendScoreInputs} />
-                </div>
-              ) : null}
-
               {canOffers && bestOffer ? (
                 <div className="product-offer-highlight">
                   <p className="text-xs font-semibold uppercase tracking-wider text-primary mb-1">
@@ -380,6 +372,12 @@ export function ProductDetailDrawer({
             <TabsContent value="suppliers" className="mt-0 space-y-3">
               {!canOffers ? (
                 <PlanFeatureGate feature="supplier_offers" />
+              ) : null}
+              {canOffers && offersData?.matchState ? (
+                <SupplierMatchBadge
+                  matchState={offersData.matchState}
+                  message={offersData.message}
+                />
               ) : null}
               {canOffers && offersQuery.error ? (
                 <DrawerPanelFallback
@@ -484,7 +482,29 @@ export function ProductDetailDrawer({
                 <DrawerPanelFallback
                   icon={Package}
                   title="No supplier offers"
-                  description="We couldn't find CJ or AliExpress offers for this product yet. Try Validate or adjust the title."
+                  description="We couldn't find CJ or AliExpress offers for this product yet."
+                  action={
+                    <div className="flex flex-col gap-2 mt-3 w-full">
+                      <Button size="sm" variant="outline" asChild>
+                        <a
+                          href={`https://cjdropshipping.com/search?q=${encodeURIComponent(product.title)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Search CJ Dropshipping
+                        </a>
+                      </Button>
+                      <Button size="sm" variant="outline" asChild>
+                        <a
+                          href={`https://www.aliexpress.com/wholesale?SearchText=${encodeURIComponent(product.title)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Search AliExpress
+                        </a>
+                      </Button>
+                    </div>
+                  }
                 />
               ) : null}
             </TabsContent>
@@ -507,12 +527,33 @@ export function ProductDetailDrawer({
             </TabsContent>
 
             <TabsContent value="profit" className="mt-0">
-              {product.price > 0 ? (
+              {canOffers && offersQuery.isLoading ? (
+                <DrawerPanelFallback loading loadingLabel="Checking supplier match…" />
+              ) : offersData?.matchState === "none" || (!canOffers && !guestMode) ? (
+                <DrawerPanelFallback
+                  icon={Calculator}
+                  title="No supplier data"
+                  description="Add your own costs in the full profit calculator, or find supplier offers first."
+                  action={
+                    <Link
+                      href={`${getDashboardPath("profit")}?productTitle=${encodeURIComponent(product.title)}&sellingPrice=${product.price}${offersData?.matchState ? `&supplierMatchState=${offersData.matchState}` : ""}`}
+                    >
+                      <Button size="sm" variant="outline" className="mt-3">
+                        Open profit calculator
+                      </Button>
+                    </Link>
+                  }
+                />
+              ) : product.price > 0 ? (
                 <ProductProfitPanel
                   productTitle={product.title}
                   productCost={bestOffer?.unitCost ?? 0}
                   shippingCost={bestOffer?.shippingCost ?? 0}
                   sellingPrice={product.price}
+                  category={product.category}
+                  supplierMatchState={offersData?.matchState ?? product.supplierMatchState}
+                  approximatePrice={offersData?.matchState === "similar"}
+                  dataLabel={product.dataLabel}
                 />
               ) : (
                 <DrawerPanelFallback
@@ -538,13 +579,7 @@ export function ProductDetailDrawer({
                   region={product.region ?? "US"}
                 />
               ) : (
-                <ProductIntelligenceHub
-                  keyword={product.title}
-                  region={product.region ?? "US"}
-                  productId={product.id}
-                  compact
-                  showDeepLinks
-                />
+                <MiniIntelPanel keyword={product.title} region={product.region ?? "US"} />
               )}
               {canSocial ? (
                 <Link

@@ -3,6 +3,7 @@ import type { TrendSignal } from "@shared/intelligenceTypes";
 import { ENV } from "../_core/env";
 import { resolveRegion } from "./regions";
 import { canUseProviderToday, incrementDailyApiUsage } from "../dataPlatform/apiUsage";
+import { computeMomentum } from "../intelligence/trends";
 
 const BASE_URL = "https://api.justserpapi.com";
 
@@ -143,15 +144,19 @@ export async function fetchGoogleTrendsJustSerp(
       .filter((q): q is string => Boolean(q))
       .slice(0, 10);
 
-    const { score, label, changePercent90d } = computeMomentum(interestOverTime);
+    const w7 = computeMomentum(interestOverTime, "7d");
+    const w30 = computeMomentum(interestOverTime, "30d");
+    const w90 = computeMomentum(interestOverTime, "90d");
 
     return {
       keyword,
       region,
       source: "google_trends",
-      momentumScore: score,
-      momentumLabel: label,
-      changePercent90d,
+      momentumScore: w90.score,
+      momentumLabel: w90.label,
+      changePercent7d: w7.changePercent,
+      changePercent30d: w30.changePercent,
+      changePercent90d: w90.changePercent,
       interestOverTime,
       relatedQueries,
       risingQueries,
@@ -162,33 +167,6 @@ export async function fetchGoogleTrendsJustSerp(
     console.warn("[Trends] Just Serp failed:", err instanceof Error ? err.message : err);
     return null;
   }
-}
-
-function computeMomentum(points: Array<{ value: number }>): {
-  score: number;
-  label: "rising" | "stable" | "declining";
-  changePercent90d: number | null;
-} {
-  if (points.length < 4) {
-    return { score: 50, label: "stable", changePercent90d: null };
-  }
-
-  const recent = points.slice(-12);
-  const older = points.slice(-24, -12);
-  const avgRecent = recent.reduce((s, p) => s + p.value, 0) / recent.length;
-  const avgOlder =
-    older.length > 0 ? older.reduce((s, p) => s + p.value, 0) / older.length : avgRecent;
-
-  const change =
-    avgOlder > 0 ? Math.round(((avgRecent - avgOlder) / avgOlder) * 100) : 0;
-
-  let label: "rising" | "stable" | "declining" = "stable";
-  if (change >= 15) label = "rising";
-  else if (change <= -15) label = "declining";
-
-  const score = Math.min(100, Math.max(0, 50 + change));
-
-  return { score, label, changePercent90d: change };
 }
 
 function parsePrice(value?: string): number {

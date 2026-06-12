@@ -9,6 +9,9 @@ export type RegionMapping = {
   tiktokRegion: string;
   currency: string;
   defaultShipFrom: "US" | "UK" | "CN" | "EU";
+  cjCountryCode: string;
+  aliexpressShipFrom: "US" | "UK" | "CN" | "EU";
+  shopteraOriginCountry: string;
 };
 
 const REGION_MAP: Record<RegionCode, RegionMapping> = {
@@ -20,6 +23,9 @@ const REGION_MAP: Record<RegionCode, RegionMapping> = {
     tiktokRegion: "US",
     currency: "USD",
     defaultShipFrom: "US",
+    cjCountryCode: "US",
+    aliexpressShipFrom: "CN",
+    shopteraOriginCountry: "US",
   },
   UK: {
     ebayMarketplaceId: "EBAY_GB",
@@ -29,6 +35,9 @@ const REGION_MAP: Record<RegionCode, RegionMapping> = {
     tiktokRegion: "UK",
     currency: "GBP",
     defaultShipFrom: "UK",
+    cjCountryCode: "UK",
+    aliexpressShipFrom: "CN",
+    shopteraOriginCountry: "GB",
   },
   EU: {
     ebayMarketplaceId: "EBAY_DE",
@@ -38,6 +47,9 @@ const REGION_MAP: Record<RegionCode, RegionMapping> = {
     tiktokRegion: "DE",
     currency: "EUR",
     defaultShipFrom: "EU",
+    cjCountryCode: "DE",
+    aliexpressShipFrom: "CN",
+    shopteraOriginCountry: "DE",
   },
   GLOBAL: {
     ebayMarketplaceId: ENV.ebayMarketplaceId,
@@ -47,6 +59,13 @@ const REGION_MAP: Record<RegionCode, RegionMapping> = {
     tiktokRegion: ENV.tiktokShopRegion,
     currency: "USD",
     defaultShipFrom: "CN",
+    cjCountryCode: "CN",
+    aliexpressShipFrom: (ENV.aliexpressShipFromDefault === "US" ||
+    ENV.aliexpressShipFromDefault === "UK" ||
+    ENV.aliexpressShipFromDefault === "EU"
+      ? ENV.aliexpressShipFromDefault
+      : "CN") as RegionMapping["aliexpressShipFrom"],
+    shopteraOriginCountry: "CN",
   },
 };
 

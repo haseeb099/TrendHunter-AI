@@ -233,6 +233,7 @@ export type DashboardTabId =
   | "trendpulse"
   | "adradar"
   | "tiktokradar"
+  | "tiktokshop"
   | "validate"
   | "competitors"
   | "profit"
@@ -258,6 +259,7 @@ export const TAB_REQUIRED_FEATURE: Record<
   trendpulse: "discover",
   adradar: "discover",
   tiktokradar: "discover",
+  tiktokshop: "discover",
   validate: "validate",
   competitors: "competitors",
   marketgap: "marketgap",

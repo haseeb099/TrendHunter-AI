@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ProductSearchResult } from "@shared/searchTypes";
 
@@ -85,12 +85,18 @@ vi.mock("./ranking/scoreProduct", () => ({
 
 
 describe("getTrendingFeed", () => {
+  beforeEach(async () => {
+    const db = await import("./db");
+    vi.mocked(db.getValidTrendingSnapshot).mockResolvedValue(mockSnapshot);
+    vi.mocked(db.getStaleTrendingSnapshot).mockResolvedValue(null);
+  });
 
   it(
     "returns empty results when no cached trending data",
     async () => {
       const db = await import("./db");
-      vi.mocked(db.getValidTrendingSnapshot).mockResolvedValueOnce(null);
+      vi.mocked(db.getValidTrendingSnapshot).mockResolvedValue(null);
+      vi.mocked(db.getStaleTrendingSnapshot).mockResolvedValue(null);
 
       const { getTrendingFeed } = await import("./trending/index");
       const feed = await getTrendingFeed({ region: "US" });

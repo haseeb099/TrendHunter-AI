@@ -1,5 +1,6 @@
 import type { ProductSearchResult, RegionCode } from "@shared/searchTypes";
 import { ENV } from "../_core/env";
+import { PROVIDER_FETCH_LIMIT } from "./constants";
 import { resolveRegion } from "./regions";
 
 /** Always-free public catalogs — no API key, no signup. */
@@ -36,7 +37,7 @@ async function searchDummyJson(
   const mapping = resolveRegion(region);
   const url = new URL("https://dummyjson.com/products/search");
   url.searchParams.set("q", query);
-  url.searchParams.set("limit", "20");
+  url.searchParams.set("limit", String(PROVIDER_FETCH_LIMIT));
 
   const response = await fetch(url, { headers: { accept: "application/json" } });
   if (!response.ok) {
@@ -67,7 +68,7 @@ async function searchFakeStore(
       p.description?.toLowerCase().includes(q)
   );
 
-  return filtered.slice(0, 20).map((p) =>
+  return filtered.slice(0, PROVIDER_FETCH_LIMIT).map((p) =>
     mapFreeRetailProduct(
       {
         id: p.id,
@@ -98,7 +99,7 @@ function mapFreeRetailProduct(
     price: p.price,
     platform: "shopify",
     image,
-    shippingDays: 5,
+    shippingDays: null,
     supplier: p.brand ?? "Retail catalog",
     rating: p.rating ?? null,
     sourceUrl: source === "dummyjson" ? `https://dummyjson.com/products/${p.id}` : `https://fakestoreapi.com/products/${p.id}`,
@@ -106,7 +107,7 @@ function mapFreeRetailProduct(
     currency,
     category: p.category,
     shipFrom: resolveRegion(region).defaultShipFrom,
-    trendScore: 60,
+    sourceProvider: "free_retail",
   };
 }
 

@@ -13,13 +13,18 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import type { RegionCode } from "@shared/searchTypes";
+import type { TrendWindow } from "@shared/intelligenceTypes";
 import { DataFreshnessBadge } from "./DataFreshnessBadge";
+import { TrendWindowSelector } from "./TrendWindowSelector";
+import { useTrendWindow } from "@/_core/hooks/useTrendWindow";
 import { toast } from "sonner";
 
 type TrendPulsePanelProps = {
   keyword: string;
   region?: RegionCode;
   compact?: boolean;
+  timeframe?: TrendWindow;
+  onTimeframeChange?: (window: TrendWindow) => void;
 };
 
 function TrendIcon({ label }: { label?: string | null }) {
@@ -28,15 +33,39 @@ function TrendIcon({ label }: { label?: string | null }) {
   return <Minus className="w-4 h-4 text-muted-foreground" />;
 }
 
-export function TrendPulsePanel({ keyword, region = "US", compact = false }: TrendPulsePanelProps) {
+function changeForWindow(
+  signal: {
+    changePercent7d: number | null;
+    changePercent30d: number | null;
+    changePercent90d: number | null;
+  },
+  window: TrendWindow
+) {
+  if (window === "7d") return signal.changePercent7d;
+  if (window === "30d") return signal.changePercent30d;
+  return signal.changePercent90d;
+}
+
+export function TrendPulsePanel({
+  keyword,
+  region = "US",
+  compact = false,
+  timeframe: controlledTimeframe,
+  onTimeframeChange,
+}: TrendPulsePanelProps) {
+  const { window: storedWindow, setWindow: setStoredWindow } = useTrendWindow();
+  const timeframe = controlledTimeframe ?? storedWindow;
+  const setTimeframe = onTimeframeChange ?? setStoredWindow;
+
   const utils = trpc.useUtils();
   const query = trpc.intelligence.getTrendPulse.useQuery(
-    { keyword, region, live: false },
+    { keyword, region, live: false, timeframe },
     { enabled: Boolean(keyword.trim()) }
   );
 
   const signal = query.data?.signal;
   const [refreshing, setRefreshing] = useState(false);
+  const changePercent = signal ? changeForWindow(signal, timeframe) : null;
 
   const handleLiveRefresh = async () => {
     if (!keyword.trim()) return;
@@ -46,8 +75,9 @@ export function TrendPulsePanel({ keyword, region = "US", compact = false }: Tre
         keyword,
         region,
         live: true,
+        timeframe,
       });
-      utils.intelligence.getTrendPulse.setData({ keyword, region, live: false }, result);
+      utils.intelligence.getTrendPulse.setData({ keyword, region, live: false, timeframe }, result);
       await utils.credits.getWallet.invalidate();
       toast.success(
         result.creditsUsed ? `Trend refreshed (−${result.creditsUsed} credit)` : "Trend refreshed"
@@ -94,25 +124,27 @@ export function TrendPulsePanel({ keyword, region = "US", compact = false }: Tre
   return (
     <div className={compact ? "space-y-3" : "space-y-4"}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <TrendIcon label={signal.momentumLabel} />
-          <span className="font-medium text-sm capitalize">{signal.momentumLabel}</span>
-          {signal.changePercent90d != null ? (
-            <Badge variant="secondary" className="text-[10px]">
-              {signal.changePercent90d > 0 ? "+" : ""}
-              {signal.changePercent90d}% / 90d
-            </Badge>
-          ) : null}
-          <Badge variant="outline" className="text-[10px]">
-            Score {Math.round(signal.momentumScore)}
-          </Badge>
-        </div>
+        <TrendWindowSelector value={timeframe} onChange={setTimeframe} />
         <DataFreshnessBadge
           dataMode={signal.isLive ? "live" : "cached"}
           cachedAt={signal.fetchedAt}
           stale={signal.stale}
           creditsUsed={query.data?.creditsUsed}
         />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <TrendIcon label={signal.momentumLabel} />
+        <span className="font-medium text-sm capitalize">{signal.momentumLabel}</span>
+        {changePercent != null ? (
+          <Badge variant="secondary" className="text-[10px]">
+            {changePercent > 0 ? "+" : ""}
+            {changePercent}% / {timeframe}
+          </Badge>
+        ) : null}
+        <Badge variant="outline" className="text-[10px]">
+          Score {Math.round(signal.momentumScore)}
+        </Badge>
       </div>
 
       {!compact && chartData.length > 2 ? (

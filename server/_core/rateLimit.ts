@@ -1,6 +1,9 @@
 import type { Request } from "express";
 import { TRPCError } from "@trpc/server";
+import type { User } from "../../drizzle/schema";
+import type { PlanId } from "@shared/plans";
 import { getRedis } from "./redis";
+import { resolveEffectivePlan, isAdmin } from "../plans";
 
 type Bucket = {
   count: number;
@@ -77,4 +80,34 @@ export async function assertAuthRateLimit(req: Request, email: string): Promise<
   const ip = getClientIp(req);
   await assertRateLimit(`auth:ip:${ip}`, 30, 15 * 60 * 1000);
   await assertRateLimit(`auth:email:${normalizedEmail}`, 10, 15 * 60 * 1000);
+}
+
+const LIVE_SEARCH_HOURLY_LIMITS: Record<PlanId, number> = {
+  trial: 20,
+  starter: 10,
+  pro: 50,
+  business: 100,
+  agency: 0,
+};
+
+/** Plan-tier hourly cap on live marketplace search (cached reads are unlimited). */
+export async function assertLiveSearchHourlyLimit(user: User): Promise<void> {
+  if (isAdmin(user)) return;
+
+  const plan = resolveEffectivePlan(user).effectivePlanId;
+  const maxPerHour = LIVE_SEARCH_HOURLY_LIMITS[plan];
+  if (maxPerHour === 0) return;
+
+  const key = `live-search:user:${user.id}`;
+  try {
+    await assertRateLimit(key, maxPerHour, 60 * 60 * 1000);
+  } catch (err) {
+    if (err instanceof TRPCError && err.code === "TOO_MANY_REQUESTS") {
+      throw new TRPCError({
+        code: "TOO_MANY_REQUESTS",
+        message: `Live search limit reached (${maxPerHour}/hour on your plan). Use cached results or upgrade.`,
+      });
+    }
+    throw err;
+  }
 }

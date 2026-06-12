@@ -3,7 +3,7 @@ import type { ProductSearchResult, RegionCode } from "@shared/searchTypes";
 import { catalogProducts } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { searchFreeRetail } from "../search/freeRetail";
-import { ENV } from "../_core/env";
+import { allowsSyntheticCatalog } from "../truthMode";
 
 export async function upsertCatalogProducts(
   products: Array<{
@@ -83,11 +83,16 @@ export async function searchCatalog(
     region: (row.region as RegionCode) ?? region,
     currency: row.currency ?? "USD",
     category: row.category ?? undefined,
+    sourceProvider: row.source === "free_retail" ? ("free_retail" as const) : undefined,
   }));
 }
 
-/** Seed catalog from free APIs during daily ingest */
+/** Seed catalog from free APIs during daily ingest (demo / non-strict-truth only). */
 export async function ingestFreeCatalog(regions: RegionCode[] = ["US", "UK"]) {
+  if (!(await allowsSyntheticCatalog())) {
+    return 0;
+  }
+
   const seedQueries = [
     "wireless earbuds",
     "led lights",
@@ -135,7 +140,7 @@ export async function countCatalogProducts(): Promise<number> {
   return Number(result[0]?.count ?? 0);
 }
 
-export async function pruneOldCatalog(maxAgeDays = 14) {
+export async function pruneOldCatalog(maxAgeDays = 90) {
   const db = await getDb();
   if (!db) return;
   const cutoff = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000);

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, eq, gte, lte } from "drizzle-orm";
+import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { canonicalProducts, productListings } from "../../drizzle/schema";
 import type {
   ProductSearchResult,
@@ -196,11 +196,13 @@ export async function persistListings(
         priceBand: band,
         primaryImageUrl: product.image,
         listingCount: 1,
+        trendScore: product.trendScore ?? null,
       })
       .onDuplicateKeyUpdate({
         set: {
           lastSeenAt: new Date(),
           ...(product.image ? { primaryImageUrl: product.image } : {}),
+          ...(product.trendScore != null ? { trendScore: product.trendScore } : {}),
         },
       });
 
@@ -251,6 +253,7 @@ export async function searchCanonicalByKeyword(
         lte(canonicalProducts.normalizedTitle, `${normalized}\uffff`)
       )
     )
+    .orderBy(desc(canonicalProducts.trendScore))
     .limit(limit);
 
   const results: ProductSearchResult[] = [];

@@ -75,6 +75,41 @@ export default function AdminResearchQualityTab() {
         icon={Gauge}
       />
 
+      {scorecard.dataStateBreakdown ? (
+        <AdminSection
+          title="Data state breakdown"
+          description="Search snapshot freshness distribution (sample of last 100)"
+          icon={Layers}
+          flush
+        >
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-5 sm:p-6">
+            <AdminMetricCard
+              label="Cached"
+              value={scorecard.dataStateBreakdown.cached}
+              hint="Within TTL"
+              tone="success"
+            />
+            <AdminMetricCard
+              label="Stale"
+              value={scorecard.dataStateBreakdown.stale}
+              hint="Expired cache"
+              tone="warning"
+            />
+            <AdminMetricCard
+              label="Unavailable"
+              value={scorecard.dataStateBreakdown.unavailable}
+              hint="Zero results"
+              tone="danger"
+            />
+            <AdminMetricCard
+              label="Total sampled"
+              value={scorecard.dataStateBreakdown.total}
+              hint="Snapshots analyzed"
+            />
+          </div>
+        </AdminSection>
+      ) : null}
+
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
         <AdminMetricCard
           label="Data freshness"

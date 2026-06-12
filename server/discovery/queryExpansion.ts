@@ -11,6 +11,9 @@ import { saveSearchSnapshot } from "../dataPlatform/snapshots";
 import { persistListings } from "../dataPlatform/productGraph";
 import type { SearchPlatform } from "../search/utils";
 import { canUseProviderToday } from "../dataPlatform/apiUsage";
+import { consumeIngestLiveSearch } from "../ingest/liveBudget";
+import { canUseAnySerperKey } from "../search/serperPool";
+import { getSerperRelatedQueries } from "../search/serper";
 
 const log = createLogger("discovery");
 
@@ -141,6 +144,8 @@ export async function buildDiscoveryQueries(
     }
   }
 
+  const serperOk = await canUseAnySerperKey();
+
   for (const seed of seeds) {
     const demand = await userSearchDemand(seed, region);
     queries.push({
@@ -150,6 +155,20 @@ export async function buildDiscoveryQueries(
       priority: computeQueryPriority({ userDemand: demand, categoryBoost: 0.1 }),
       source: "category_seed",
     });
+
+    if (serperOk && seeds.indexOf(seed) < 2) {
+      const serperAdj = await getSerperRelatedQueries(seed, region, 3);
+      for (const adj of serperAdj) {
+        queries.push({
+          query: adj.toLowerCase(),
+          platform: "all",
+          region,
+          priority: computeQueryPriority({ trendMomentum: 55, categoryBoost: 0.12 }),
+          source: "adjacent",
+          parentQuery: seed,
+        });
+      }
+    }
 
     for (const adj of adjacentQueries(seed).slice(0, 2)) {
       queries.push({
@@ -187,6 +206,9 @@ export async function getAdjacentQuerySuggestions(
       if (rq) adjacent.push(...rq);
     }
   }
+
+  const serperRelated = await getSerperRelatedQueries(query, region, limit);
+  for (const q of serperRelated) adjacent.push(q);
 
   return Array.from(new Set(adjacent)).slice(0, limit);
 }
@@ -234,6 +256,7 @@ export async function enqueueDiscoveryQueries(regions: RegionCode[]): Promise<nu
 }
 
 async function pickProvidersForQuery(priority: number): Promise<boolean> {
+  if (await canUseAnySerperKey()) return true;
   if (priority >= 0.7) {
     return canUseProviderToday("serpapi", ENV.serpApiDailyCap);
   }
@@ -279,10 +302,19 @@ export async function processDiscoveryQueue(regions: RegionCode[]): Promise<{
         continue;
       }
 
+      if (!consumeIngestLiveSearch()) {
+        await db
+          .update(discoveryQueue)
+          .set({ status: "skipped", completedAt: new Date() })
+          .where(eq(discoveryQueue.id, item.id));
+        continue;
+      }
+
       const live = await searchProductsLive(
         item.query,
         (item.platform as SearchPlatform) ?? "all",
-        { region: item.region as RegionCode }
+        { region: item.region as RegionCode },
+        { ingest: true }
       );
 
       if (live.results.length > 0) {

@@ -1,6 +1,7 @@
 import "dotenv/config";
 import * as Sentry from "@sentry/node";
 import express from "express";
+import helmet from "helmet";
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
@@ -14,6 +15,7 @@ import { validateEnvOnStartup } from "./validateEnv";
 import { registerStripeRoutes } from "../stripeRoutes";
 import { registerOAuthRoutes } from "./oauthRoutes";
 import { registerIngestRoutes } from "./ingestRoutes";
+import { startIngestScheduler } from "../ingest/scheduler";
 import { expireStaleTrials } from "../plans";
 import { buildSitemapXml } from "../seo/sitemap";
 import { createLogger } from "./logger";
@@ -72,6 +74,12 @@ async function startServer() {
 
   const app = express();
   const server = createServer(app);
+  app.use(
+    helmet({
+      contentSecurityPolicy: ENV.isProduction ? undefined : false,
+      crossOriginEmbedderPolicy: false,
+    })
+  );
   registerStripeRoutes(app);
   registerOAuthRoutes(app);
   // 8mb supports ~5mb file uploads via base64 in tRPC (routers uploadFile cap)
@@ -108,14 +116,24 @@ async function startServer() {
   }
 
   const preferredPort = ENV.port;
-  const port = await findAvailablePort(preferredPort);
+  let port = preferredPort;
 
-  if (port !== preferredPort) {
-    log.warn(`Port ${preferredPort} busy, using ${port}`);
+  if (ENV.isProduction) {
+    port = await findAvailablePort(preferredPort);
+    if (port !== preferredPort) {
+      log.warn(`Port ${preferredPort} busy, using ${port}`);
+    }
+  } else if (!(await isPortAvailable(preferredPort))) {
+    log.error(
+      `Port ${preferredPort} is already in use. Stop the other process (or close stale dev servers) and restart.`,
+      { hint: `On Windows: netstat -ano | findstr :${preferredPort}` }
+    );
+    process.exit(1);
   }
 
   server.listen(port, () => {
     log.info("Server listening", { port, url: `http://localhost:${port}/` });
+    startIngestScheduler();
   });
 }
 

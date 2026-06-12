@@ -13,8 +13,12 @@ type DataFreshnessBadgeProps = {
   cachedAt?: string | null;
   stale?: boolean;
   synthetic?: boolean;
+  /** When true, synthetic badge reads "AI-generated" instead of demo catalog copy. */
+  inferredScores?: boolean;
   unavailable?: boolean;
   creditsUsed?: number;
+  /** Override default state label, e.g. "Live from Amazon". */
+  label?: string;
   className?: string;
 };
 
@@ -25,7 +29,7 @@ const STATE_META: Record<
   live: { label: "Live", variant: "default", Icon: Zap },
   cached: { label: "Cached", variant: "secondary", Icon: Database },
   stale: { label: "Stale cache", variant: "outline", Icon: AlertTriangle },
-  synthetic: { label: "AI-generated", variant: "outline", Icon: Sparkles },
+  synthetic: { label: "Demo catalog data", variant: "outline", Icon: Database },
   unavailable: { label: "Unavailable", variant: "destructive", Icon: Ban },
 };
 
@@ -35,15 +39,22 @@ export function DataFreshnessBadge({
   cachedAt,
   stale,
   synthetic,
+  inferredScores,
   unavailable,
   creditsUsed,
+  label: labelOverride,
   className,
 }: DataFreshnessBadgeProps) {
   const state =
     stateProp ??
     resolveDataState({ dataMode, stale, synthetic, unavailable });
 
-  const { label, variant, Icon } = STATE_META[state];
+  const meta =
+    state === "synthetic" && inferredScores
+      ? { label: "AI-generated", variant: "outline" as const, Icon: Sparkles }
+      : STATE_META[state];
+  const { label: defaultLabel, variant, Icon } = meta;
+  const label = labelOverride ?? defaultLabel;
   const timeAgo =
     cachedAt && !Number.isNaN(Date.parse(cachedAt))
       ? formatDistanceToNow(new Date(cachedAt), { addSuffix: true })

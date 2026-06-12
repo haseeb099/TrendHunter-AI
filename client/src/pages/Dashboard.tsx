@@ -18,6 +18,8 @@ import IntelligenceCenter from "./IntelligenceCenter";
 import TrendPulsePage from "./TrendPulsePage";
 import AdRadarPage from "./AdRadarPage";
 import TikTokRadarPage from "./TikTokRadarPage";
+import TikTokShopPage from "./TikTokShopPage";
+import { OnboardingChecklist } from "@/components/onboarding/OnboardingChecklist";
 import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { getActiveTab, getDashboardPath, type DashboardTabId } from "@/config/dashboardNav";
@@ -84,6 +86,8 @@ export default function Dashboard() {
         return <AdRadarPage />;
       case "tiktokradar":
         return <TikTokRadarPage />;
+      case "tiktokshop":
+        return <TikTokShopPage />;
       case "validate":
         return <ProductValidation />;
       case "competitors":
@@ -113,7 +117,10 @@ export default function Dashboard() {
 
   return (
     <DashboardLayout>
-      <GatedContent tab={activeTab}>{renderContent()}</GatedContent>
+      <div className="space-y-6">
+        <OnboardingChecklist />
+        <GatedContent tab={activeTab}>{renderContent()}</GatedContent>
+      </div>
     </DashboardLayout>
   );
 }

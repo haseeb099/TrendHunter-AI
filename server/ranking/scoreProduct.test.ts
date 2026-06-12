@@ -175,14 +175,14 @@ describe("scoreProduct", () => {
       expect(result.trendScore).toMatchInlineSnapshot(`81`);
       expect(result.isTrending).toBe(true);
       expect(result.rankingExplanation?.summary).toBe(
-        "Rising search interest with balanced competition signals."
+        "Score uses estimated signals — connect live providers for higher confidence."
       );
       expect(result.rankingExplanation?.topSignals[0]).toMatchObject({
         name: "Trend momentum",
         score: 88,
         weight: DEFAULT_WEIGHTS.trendMomentum,
       });
-      expect(result.rankingExplanation?.confidence).toBe("high");
+      expect(result.rankingExplanation?.confidence).toBe("medium");
     });
 
     it("saturated ads / high competition — tougher window", async () => {
@@ -208,13 +208,13 @@ describe("scoreProduct", () => {
         { query: "phone case" }
       );
 
-      expect(result.trendScore).toMatchInlineSnapshot(`51`);
+      expect(result.trendScore).toMatchInlineSnapshot(`50`);
       expect(result.isTrending).toBe(false);
       expect(result.rankingExplanation?.summary).toBe(
-        "Moderate opportunity based on available signals."
+        "Score uses estimated signals — connect live providers for higher confidence."
       );
       expect(result.rankingExplanation?.topSignals[0]?.score).toBeLessThan(60);
-      expect(result.rankingExplanation?.confidence).toBe("high");
+      expect(result.rankingExplanation?.confidence).toBe("medium");
     });
 
     it("stale features — low confidence and refresh path", async () => {
@@ -254,7 +254,8 @@ describe("scoreProduct", () => {
       expect(result.rankingExplanation?.staleFeatures).toBe(true);
       expect(result.rankingExplanation?.confidence).toBe("low");
       expect(features.materializeProductFeatures).toHaveBeenCalled();
-      expect(result.trendScore).toMatchInlineSnapshot(`78`);
+      expect(result.trendScore).toMatchInlineSnapshot(`74`);
     });
   });
 });
+

@@ -1,5 +1,6 @@
 import {
   int,
+  index,
   mysqlEnum,
   mysqlTable,
   text,
@@ -233,6 +234,22 @@ export const suppliers = mysqlTable("suppliers", {
 export type Supplier = typeof suppliers.$inferSelect;
 export type InsertSupplier = typeof suppliers.$inferInsert;
 
+// Browsable supplier platform directory (CJ / AliExpress category coverage)
+export const supplierCatalog = mysqlTable("supplier_catalog", {
+  id: int("id").autoincrement().primaryKey(),
+  platform: mysqlEnum("platform", ["cj", "aliexpress"]).notNull(),
+  category: varchar("category", { length: 64 }).notNull(),
+  subcategory: varchar("subcategory", { length: 128 }),
+  coverageScore: int("coverageScore").default(80).notNull(),
+  regions: json("regions"),
+  searchUrl: text("searchUrl"),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type SupplierCatalogEntry = typeof supplierCatalog.$inferSelect;
+export type InsertSupplierCatalogEntry = typeof supplierCatalog.$inferInsert;
+
 // Admin audit trail
 export const adminAuditLog = mysqlTable("admin_audit_log", {
   id: int("id").autoincrement().primaryKey(),
@@ -425,6 +442,61 @@ export const apiUsageDaily = mysqlTable("api_usage_daily", {
 
 export type ApiUsageDaily = typeof apiUsageDaily.$inferSelect;
 
+/** Hourly API usage caps (free providers e.g. Shoptera 300/hr) */
+export const apiUsageHourly = mysqlTable("api_usage_hourly", {
+  id: int("id").autoincrement().primaryKey(),
+  provider: varchar("provider", { length: 64 }).notNull(),
+  hourKey: varchar("hourKey", { length: 16 }).notNull(),
+  callCount: int("callCount").default(0).notNull(),
+});
+
+export type ApiUsageHourly = typeof apiUsageHourly.$inferSelect;
+
+/** Weekly API usage (Serper free-tier 2,500 credits/week per account) */
+export const apiUsageWeekly = mysqlTable("api_usage_weekly", {
+  id: int("id").autoincrement().primaryKey(),
+  provider: varchar("provider", { length: 64 }).notNull(),
+  weekKey: varchar("weekKey", { length: 16 }).notNull(),
+  callCount: int("callCount").default(0).notNull(),
+});
+
+export type ApiUsageWeekly = typeof apiUsageWeekly.$inferSelect;
+
+/** Monthly API usage caps (e.g. RapidAPI Amazon 100/month) */
+export const apiUsageMonthly = mysqlTable("api_usage_monthly", {
+  id: int("id").autoincrement().primaryKey(),
+  provider: varchar("provider", { length: 64 }).notNull(),
+  monthKey: varchar("monthKey", { length: 8 }).notNull(),
+  callCount: int("callCount").default(0).notNull(),
+});
+
+export type ApiUsageMonthly = typeof apiUsageMonthly.$inferSelect;
+
+/** Cached Amazon marketplace categories from RapidAPI */
+export const amazonCategoryCache = mysqlTable("amazon_category_cache", {
+  id: int("id").autoincrement().primaryKey(),
+  region: varchar("region", { length: 16 }).notNull(),
+  country: varchar("country", { length: 8 }).notNull(),
+  categories: json("categories").notNull(),
+  fetchedAt: timestamp("fetchedAt").defaultNow().notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+});
+
+export type AmazonCategoryCache = typeof amazonCategoryCache.$inferSelect;
+
+/** Dedupes RapidAPI ingest queries within a calendar month */
+export const rapidApiQueryLog = mysqlTable("rapid_api_query_log", {
+  id: int("id").autoincrement().primaryKey(),
+  provider: varchar("provider", { length: 64 }).notNull(),
+  queryKey: varchar("queryKey", { length: 191 }).notNull(),
+  region: varchar("region", { length: 16 }).default("US").notNull(),
+  monthKey: varchar("monthKey", { length: 8 }).notNull(),
+  resultCount: int("resultCount").default(0).notNull(),
+  fetchedAt: timestamp("fetchedAt").defaultNow().notNull(),
+});
+
+export type RapidApiQueryLog = typeof rapidApiQueryLog.$inferSelect;
+
 // User live-credit wallet
 export const userCredits = mysqlTable("user_credits", {
   userId: int("userId").primaryKey(),
@@ -524,16 +596,23 @@ export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 export type InsertPasswordResetToken = typeof passwordResetTokens.$inferInsert;
 
 // Canonical product graph (S16)
-export const canonicalProducts = mysqlTable("canonical_products", {
-  id: varchar("id", { length: 36 }).primaryKey(),
-  normalizedTitle: varchar("normalizedTitle", { length: 512 }).notNull(),
-  category: varchar("category", { length: 64 }),
-  priceBand: mysqlEnum("priceBand", ["budget", "mid", "premium"]).default("mid").notNull(),
-  primaryImageUrl: text("primaryImageUrl"),
-  listingCount: int("listingCount").default(1).notNull(),
-  firstSeenAt: timestamp("firstSeenAt").defaultNow().notNull(),
-  lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
-});
+export const canonicalProducts = mysqlTable(
+  "canonical_products",
+  {
+    id: varchar("id", { length: 36 }).primaryKey(),
+    normalizedTitle: varchar("normalizedTitle", { length: 512 }).notNull(),
+    category: varchar("category", { length: 64 }),
+    priceBand: mysqlEnum("priceBand", ["budget", "mid", "premium"]).default("mid").notNull(),
+    primaryImageUrl: text("primaryImageUrl"),
+    listingCount: int("listingCount").default(1).notNull(),
+    trendScore: float("trendScore"),
+    firstSeenAt: timestamp("firstSeenAt").defaultNow().notNull(),
+    lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    trendScoreIdx: index("canonical_products_trendScore_idx").on(table.trendScore),
+  })
+);
 
 export type CanonicalProduct = typeof canonicalProducts.$inferSelect;
 
@@ -624,6 +703,24 @@ export const ingestRetries = mysqlTable("ingest_retries", {
 
 export type IngestRetry = typeof ingestRetries.$inferSelect;
 
+/** Work queue: one row per region + optional category trending snapshot slot. */
+export const trendingIngestQueue = mysqlTable("trending_ingest_queue", {
+  id: int("id").autoincrement().primaryKey(),
+  region: varchar("region", { length: 16 }).notNull(),
+  category: varchar("category", { length: 64 }),
+  priority: float("priority").default(1).notNull(),
+  status: mysqlEnum("status", ["pending", "running", "done", "failed"])
+    .default("pending")
+    .notNull(),
+  attempts: int("attempts").default(0).notNull(),
+  lastError: text("lastError"),
+  nextRetryAt: timestamp("nextRetryAt").defaultNow().notNull(),
+  completedAt: timestamp("completedAt"),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export type TrendingIngestQueueRow = typeof trendingIngestQueue.$inferSelect;
+
 // Ranking weight configs (S24)
 export const rankingConfigs = mysqlTable("ranking_configs", {
   id: int("id").autoincrement().primaryKey(),
@@ -635,3 +732,17 @@ export const rankingConfigs = mysqlTable("ranking_configs", {
 });
 
 export type RankingConfig = typeof rankingConfigs.$inferSelect;
+
+// Category taxonomy for drill-down discovery (Phase 2)
+export const categoryTaxonomy = mysqlTable("category_taxonomy", {
+  id: int("id").autoincrement().primaryKey(),
+  rootCategory: varchar("root_category", { length: 64 }).notNull(),
+  subcategory: varchar("subcategory", { length: 128 }),
+  productType: varchar("product_type", { length: 128 }),
+  useCase: varchar("use_case", { length: 128 }),
+  audience: varchar("audience", { length: 128 }),
+  priceBand: varchar("price_band", { length: 32 }),
+  regionRelevance: varchar("region_relevance", { length: 64 }),
+});
+
+export type CategoryTaxonomy = typeof categoryTaxonomy.$inferSelect;

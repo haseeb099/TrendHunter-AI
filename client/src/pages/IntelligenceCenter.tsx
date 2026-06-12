@@ -2,6 +2,15 @@ import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { TrendWindowSelector } from "@/components/intelligence/TrendWindowSelector";
+import { useTrendWindow } from "@/_core/hooks/useTrendWindow";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ProductCard } from "@/components/ProductCard";
 import { ProductDetailDrawer } from "@/components/ProductDetailDrawer";
@@ -16,12 +25,13 @@ import type { ProductSearchResult, RegionCode } from "@shared/searchTypes";
 import { IntelAlertsPanel } from "@/components/intelligence/IntelAlertsPanel";
 import { ProviderStatusBar } from "@/components/intelligence/ProviderStatusBar";
 import { DataCoverageBanner } from "@/components/intelligence/DataCoverageBanner";
-import { ArrowRight, Info, LineChart, Radar, Sparkles } from "lucide-react";
+import { ArrowRight, Info, LineChart, Radar, ShoppingBag, Sparkles, Video } from "lucide-react";
 import { Link } from "wouter";
 
 export default function IntelligenceCenter() {
   const [region, setRegion] = useState<RegionCode>("US");
   const [category, setCategory] = useState<string | undefined>();
+  const { window: trendWindow, setWindow: setTrendWindow } = useTrendWindow();
   const [keyword, setKeyword] = useState("");
   const [activeKeyword, setActiveKeyword] = useState("");
   const [detailProduct, setDetailProduct] = useState<ProductSearchResult | null>(null);
@@ -29,7 +39,11 @@ export default function IntelligenceCenter() {
 
   const categoriesQuery = trpc.trending.getCategories.useQuery({ region });
   const digestQuery = trpc.intelligence.getMarketDigest.useQuery({ region, category });
-  const trendingQuery = trpc.trending.getFeed.useQuery({ region, category });
+  const trendingQuery = trpc.trending.getFeed.useQuery({
+    region,
+    category,
+    timeframe: trendWindow,
+  });
 
   const handleAnalyze = (kw: string) => {
     setActiveKeyword(kw);
@@ -53,7 +67,7 @@ export default function IntelligenceCenter() {
 
       <DataCoverageBanner pageId="intel-center" />
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <SourceCard
           icon={LineChart}
           title="Google Trends"
@@ -67,6 +81,18 @@ export default function IntelligenceCenter() {
           href={getDashboardPath("adradar")}
         />
         <SourceCard
+          icon={Video}
+          title="TikTok Ads"
+          desc="Brands running TikTok ads in your niche — creative angles and advertiser counts."
+          href={getDashboardPath("tiktokradar")}
+        />
+        <SourceCard
+          icon={ShoppingBag}
+          title="TikTok Shop"
+          desc="Viral products on TikTok Shop commerce — spot SKUs before they saturate."
+          href={getDashboardPath("tiktokshop")}
+        />
+        <SourceCard
           icon={Sparkles}
           title="Trending products"
           desc="Hot items across marketplaces in your region — save to pipeline or dig into intel."
@@ -74,25 +100,38 @@ export default function IntelligenceCenter() {
         />
       </div>
 
-      <div className="flex flex-wrap gap-2 items-center">
-        <span className="text-xs text-muted-foreground mr-1">Category:</span>
-        <Button
-          size="sm"
-          variant={!category ? "default" : "outline"}
-          onClick={() => setCategory(undefined)}
-        >
-          All
-        </Button>
-        {categoriesQuery.data?.categories.map((c) => (
-          <Button
-            key={c.value}
-            size="sm"
-            variant={category === c.value ? "default" : "outline"}
-            onClick={() => setCategory(c.value)}
+      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border bg-card/40 p-3 sm:p-4">
+        <div className="min-w-[200px] flex-1 space-y-1.5">
+          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            Category
+          </span>
+          <Select
+            value={category ?? "all"}
+            onValueChange={(v) => setCategory(v === "all" ? undefined : v)}
           >
-            {c.label}
-          </Button>
-        ))}
+            <SelectTrigger className="h-9 w-full text-xs">
+              <SelectValue placeholder="All categories" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All categories</SelectItem>
+              {categoriesQuery.data?.categories.map((c) => (
+                <SelectItem key={c.value} value={c.value}>
+                  {c.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            Trend period
+          </span>
+          <TrendWindowSelector
+            value={trendWindow}
+            onChange={setTrendWindow}
+            className="w-full min-w-[220px]"
+          />
+        </div>
       </div>
 
       <KeywordExplorer
@@ -191,7 +230,10 @@ export default function IntelligenceCenter() {
             <h2 className="font-display font-semibold text-lg">Trending products</h2>
             <p className="text-sm text-muted-foreground">
               What&apos;s selling now in {region}
-              {category ? ` · ${category}` : ""} — open any product for full intel in the side panel.
+              {category
+                ? ` · ${categoriesQuery.data?.categories.find((c) => c.value === category)?.label ?? category}`
+                : ""}{" "}
+              — open any product for full intel in the side panel.
             </p>
           </div>
           <Link href={getDashboardPath("search")}>

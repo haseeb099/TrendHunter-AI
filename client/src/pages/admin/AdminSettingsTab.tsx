@@ -16,8 +16,9 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
-import { Bell, Brain, CreditCard, Mail, Save, Settings2, Shield, Wrench } from "lucide-react";
+import { Bell, Brain, CreditCard, Mail, Save, Settings2, Shield, Wrench, Eye } from "lucide-react";
 import { toast } from "sonner";
+import { ProviderStatusBar } from "@/components/intelligence/ProviderStatusBar";
 
 export default function AdminSettingsTab() {
   const utils = trpc.useUtils();
@@ -33,6 +34,7 @@ export default function AdminSettingsTab() {
   const [aiFeaturesEnabled, setAiFeaturesEnabled] = useState(true);
   const [selfServeBilling, setSelfServeBilling] = useState(false);
   const [googleLoginEnabled, setGoogleLoginEnabled] = useState(false);
+  const [strictTruthMode, setStrictTruthMode] = useState(true);
 
   useEffect(() => {
     if (!settingsQuery.data) return;
@@ -47,6 +49,7 @@ export default function AdminSettingsTab() {
     setAiFeaturesEnabled(s.ai_features_enabled);
     setSelfServeBilling(s.self_serve_billing);
     setGoogleLoginEnabled(s.google_login_enabled);
+    setStrictTruthMode(s.strict_truth_mode);
   }, [settingsQuery.data]);
 
   const updateSettings = trpc.admin.updateSettings.useMutation({
@@ -70,6 +73,7 @@ export default function AdminSettingsTab() {
       ai_features_enabled: aiFeaturesEnabled,
       self_serve_billing: selfServeBilling,
       google_login_enabled: googleLoginEnabled,
+      strict_truth_mode: strictTruthMode,
     });
 
   if (settingsQuery.isLoading) return <AdminLoading label="Loading platform settings…" />;
@@ -95,6 +99,17 @@ export default function AdminSettingsTab() {
           </Button>
         }
       />
+
+      <div className="admin-settings-group">
+        <p className="font-medium text-sm flex items-center gap-2">
+          <Wrench className="w-4 h-4 text-primary" />
+          API key status
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Live search and intel providers — configure keys in environment variables.
+        </p>
+        <ProviderStatusBar />
+      </div>
 
       <div className="admin-settings-group">
         <p className="font-medium text-sm flex items-center gap-2">
@@ -157,6 +172,18 @@ export default function AdminSettingsTab() {
             </p>
           </div>
           <Switch checked={googleLoginEnabled} onCheckedChange={setGoogleLoginEnabled} />
+        </label>
+        <label className="admin-toggle-row">
+          <div>
+            <p className="text-sm font-medium flex items-center gap-2">
+              <Eye className="w-4 h-4" />
+              Strict truth mode
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              When on: disables free retail, catalog fallback, and heuristic trend scores. Turn off only for demo/QA.
+            </p>
+          </div>
+          <Switch checked={strictTruthMode} onCheckedChange={setStrictTruthMode} />
         </label>
       </div>
 

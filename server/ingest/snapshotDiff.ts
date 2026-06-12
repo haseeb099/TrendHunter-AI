@@ -1,8 +1,20 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import type { ProductSearchResult, RegionCode } from "@shared/searchTypes";
 import { trendingSnapshots, trendingSnapshotDiffs } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { PRODUCT_CATEGORIES } from "@shared/searchTypes";
+
+async function loadSnapshotPayload(id: number): Promise<ProductSearchResult[] | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select({ payload: trendingSnapshots.payload })
+    .from(trendingSnapshots)
+    .where(eq(trendingSnapshots.id, id))
+    .limit(1);
+  const payload = rows[0]?.payload;
+  return Array.isArray(payload) ? (payload as ProductSearchResult[]) : null;
+}
 
 export async function computeSnapshotDiffs(
   regionOrRegions: RegionCode | RegionCode[]
@@ -15,55 +27,63 @@ export async function computeSnapshotDiffs(
 
   for (const region of regions) {
     for (const category of [undefined, ...PRODUCT_CATEGORIES]) {
-      const rows = await db
-        .select()
-        .from(trendingSnapshots)
-        .where(eq(trendingSnapshots.region, region))
-        .orderBy(desc(trendingSnapshots.createdAt))
-        .limit(20);
+      try {
+        const categoryCond = category
+          ? eq(trendingSnapshots.category, category)
+          : isNull(trendingSnapshots.category);
 
-      const filtered = category
-        ? rows.filter((r) => r.category === category)
-        : rows.filter((r) => !r.category);
+        const metaRows = await db
+          .select({
+            id: trendingSnapshots.id,
+          })
+          .from(trendingSnapshots)
+          .where(and(eq(trendingSnapshots.region, region), categoryCond))
+          .orderBy(desc(trendingSnapshots.createdAt))
+          .limit(2);
 
-      if (filtered.length < 2) continue;
+        if (metaRows.length < 2) continue;
 
-      const current = filtered[0]!;
-      const previous = filtered[1]!;
-      const currentProducts = current.payload as ProductSearchResult[];
-      const previousProducts = previous.payload as ProductSearchResult[];
+        const [currentProducts, previousProducts] = await Promise.all([
+          loadSnapshotPayload(metaRows[0]!.id),
+          loadSnapshotPayload(metaRows[1]!.id),
+        ]);
 
-      const prevIds = new Set(
-        previousProducts.map((p) => p.canonicalProductId ?? `${p.platform}:${p.id}`)
-      );
-      const currIds = new Set(
-        currentProducts.map((p) => p.canonicalProductId ?? `${p.platform}:${p.id}`)
-      );
+        if (!currentProducts?.length || !previousProducts?.length) continue;
 
-      const added = Array.from(currIds).filter((id) => !prevIds.has(id));
-      const removed = Array.from(prevIds).filter((id) => !currIds.has(id));
-
-      const scoreDeltas: Record<string, number> = {};
-      for (const p of currentProducts) {
-        const id = p.canonicalProductId ?? `${p.platform}:${p.id}`;
-        const prev = previousProducts.find(
-          (x) => (x.canonicalProductId ?? `${x.platform}:${x.id}`) === id
+        const prevIds = new Set(
+          previousProducts.map((p) => p.canonicalProductId ?? `${p.platform}:${p.id}`)
         );
-        if (prev && p.trendScore != null && prev.trendScore != null) {
-          scoreDeltas[id] = p.trendScore - prev.trendScore;
-        }
-      }
+        const currIds = new Set(
+          currentProducts.map((p) => p.canonicalProductId ?? `${p.platform}:${p.id}`)
+        );
 
-      await db.insert(trendingSnapshotDiffs).values({
-        region,
-        category: category ?? null,
-        previousSnapshotId: previous.id,
-        currentSnapshotId: current.id,
-        addedCanonicalIds: added,
-        removedCanonicalIds: removed,
-        scoreDeltas,
-      });
-      count++;
+        const added = Array.from(currIds).filter((id) => !prevIds.has(id));
+        const removed = Array.from(prevIds).filter((id) => !currIds.has(id));
+
+        const scoreDeltas: Record<string, number> = {};
+        for (const p of currentProducts) {
+          const id = p.canonicalProductId ?? `${p.platform}:${p.id}`;
+          const prev = previousProducts.find(
+            (x) => (x.canonicalProductId ?? `${x.platform}:${x.id}`) === id
+          );
+          if (prev && p.trendScore != null && prev.trendScore != null) {
+            scoreDeltas[id] = p.trendScore - prev.trendScore;
+          }
+        }
+
+        await db.insert(trendingSnapshotDiffs).values({
+          region,
+          category: category ?? null,
+          previousSnapshotId: metaRows[1]!.id,
+          currentSnapshotId: metaRows[0]!.id,
+          addedCanonicalIds: added,
+          removedCanonicalIds: removed,
+          scoreDeltas,
+        });
+        count++;
+      } catch (err) {
+        console.warn(`[snapshotDiff] skip ${region}/${category ?? "all"}:`, err);
+      }
     }
   }
 

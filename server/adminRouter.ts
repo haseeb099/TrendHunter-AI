@@ -41,7 +41,7 @@ import {
   RANKING_VERSION,
   RANKING_WEIGHT_KEYS,
   type RankingWeights,
-} from "./ranking/scoreProduct";
+} from "@shared/ranking";
 
 const accountStatusSchema = z.enum(["active", "deactivated", "flagged", "paused"]);
 const planIdSchema = z.enum(["trial", "starter", "pro", "business", "agency"]);
@@ -730,6 +730,7 @@ export const adminRouter = router({
       ai_features_enabled: raw.ai_features_enabled !== false,
       self_serve_billing: raw.self_serve_billing === true,
       google_login_enabled: raw.google_login_enabled === true,
+      strict_truth_mode: raw.strict_truth_mode !== false,
     };
   }),
 
@@ -746,6 +747,7 @@ export const adminRouter = router({
         ai_features_enabled: z.boolean().optional(),
         self_serve_billing: z.boolean().optional(),
         google_login_enabled: z.boolean().optional(),
+        strict_truth_mode: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -767,6 +769,7 @@ export const adminRouter = router({
         ai_features_enabled: raw.ai_features_enabled !== false,
         self_serve_billing: raw.self_serve_billing === true,
         google_login_enabled: raw.google_login_enabled === true,
+        strict_truth_mode: raw.strict_truth_mode !== false,
       };
     }),
 });

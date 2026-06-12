@@ -30,6 +30,29 @@ export function applyProductHuntFilters(
     );
   }
 
+  if (filters.subcategory) {
+    const target = filters.subcategory.toLowerCase();
+    filtered = filtered.filter(
+      (item) =>
+        item.subcategory?.toLowerCase() === target ||
+        item.title.toLowerCase().includes(target)
+    );
+  }
+
+  if (filters.productType) {
+    const target = filters.productType.toLowerCase();
+    filtered = filtered.filter(
+      (item) =>
+        item.productType?.toLowerCase() === target ||
+        item.title.toLowerCase().includes(target)
+    );
+  }
+
+  if (filters.query?.trim()) {
+    const target = filters.query.trim().toLowerCase();
+    filtered = filtered.filter((item) => item.title.toLowerCase().includes(target));
+  }
+
   if (filters.shipFrom && filters.shipFrom.length > 0) {
     const allowed = new Set(filters.shipFrom);
     filtered = filtered.filter((item) => item.shipFrom && allowed.has(item.shipFrom));

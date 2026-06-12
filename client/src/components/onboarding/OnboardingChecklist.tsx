@@ -2,13 +2,22 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useOnboarding } from "@/_core/hooks/useOnboarding";
 import { getDashboardPath } from "@/config/dashboardNav";
-import { CheckCircle2, Circle, Compass, BookmarkIcon, Layers, X } from "lucide-react";
+import {
+  CheckCircle2,
+  Circle,
+  Compass,
+  BookmarkIcon,
+  Layers,
+  DollarSign,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { Link } from "wouter";
 
 const STEPS = [
   {
     id: "discover" as const,
-    label: "Browse Discover",
+    label: "Search Discover",
     hint: "Explore trending products in your region",
     icon: Compass,
     href: getDashboardPath("search"),
@@ -27,6 +36,20 @@ const STEPS = [
     icon: Layers,
     href: getDashboardPath("pipeline"),
   },
+  {
+    id: "profit" as const,
+    label: "Model profit",
+    hint: "Run margin math on a product",
+    icon: DollarSign,
+    href: getDashboardPath("profit"),
+  },
+  {
+    id: "social" as const,
+    label: "Open Social Kit",
+    hint: "Generate ad copy and hashtags",
+    icon: Sparkles,
+    href: getDashboardPath("social"),
+  },
 ];
 
 export function OnboardingChecklist() {
@@ -42,7 +65,8 @@ export function OnboardingChecklist() {
         <div>
           <p className="text-sm font-semibold">Getting started</p>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {completedCount}/{STEPS.length} steps — Discover → Watchlist → Pipeline
+            {completedCount}/{STEPS.length} steps — search → watchlist → pipeline → profit → social
+            kit
           </p>
         </div>
         <Button

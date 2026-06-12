@@ -78,7 +78,8 @@ jobs:
           JWT_SECRET: ci-test-jwt-secret-min-32-chars-long
           PORT: "3005"
           NODE_ENV: production
-          FREE_RETAIL_ENABLED: "true"
+          FREE_RETAIL_ENABLED: "false"
+          STRICT_TRUTH_MODE: "true"
 
       - name: Wait for server
         run: |

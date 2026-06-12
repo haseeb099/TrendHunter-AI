@@ -16,8 +16,11 @@ export function SupplierConfidencePanel({ product }: Props) {
 
   return (
     <Card className="p-4 space-y-2">
-      <div className="flex items-center justify-between">
-        <h4 className="font-semibold text-sm">Supplier confidence</h4>
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <h4 className="font-semibold text-sm">Supplier confidence</h4>
+          <p className="text-[10px] text-muted-foreground mt-0.5">Offer quality tier</p>
+        </div>
         <Badge
           variant={tier === "high" ? "default" : tier === "medium" ? "secondary" : "outline"}
           className="capitalize"

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -13,7 +14,20 @@ import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { FieldLabel } from "@/components/workspace/FieldLabel";
 import { getDashboardPath } from "@/config/dashboardNav";
-import { MapPin, Clock, Package, Plus, Pencil, Trash2, CheckCircle, Truck } from "lucide-react";
+import {
+  MapPin,
+  Clock,
+  Package,
+  Plus,
+  Pencil,
+  Trash2,
+  CheckCircle,
+  Truck,
+  ExternalLink,
+  LayoutGrid,
+  Users,
+} from "lucide-react";
+import { PRODUCT_CATEGORIES } from "@shared/searchTypes";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Spinner } from "@/components/ui/spinner";
@@ -37,8 +51,12 @@ export default function SupplierVetting() {
   const [moq, setMoq] = useState("");
   const [notes, setNotes] = useState("");
 
+  const [view, setView] = useState<"directory" | "contacts">("directory");
+  const [catalogCategory, setCatalogCategory] = useState<string | undefined>();
+
   const suppliersQuery = trpc.supplier.getSuppliers.useQuery();
   const offersStatus = trpc.supplier.getOffersStatus.useQuery();
+  const catalogQuery = trpc.supplier.getCatalog.useQuery({ category: catalogCategory });
 
   const createMutation = trpc.supplier.createSupplier.useMutation({
     onSuccess: async () => {
@@ -117,16 +135,145 @@ export default function SupplierVetting() {
   return (
     <div className="space-y-8">
       <PageHeader
-        title="Supplier contacts"
-        description="Track suppliers you vet manually. Live CJ and AliExpress offers appear on product detail in Discover."
+        title="Suppliers"
+        description="Browse CJ and AliExpress category coverage, or track contacts you vet manually."
         actions={
-          <Button onClick={openCreate}>
-            <Plus className="w-4 h-4" />
-            Add supplier
-          </Button>
+          view === "contacts" ? (
+            <Button onClick={openCreate}>
+              <Plus className="w-4 h-4" />
+              Add supplier
+            </Button>
+          ) : null
         }
       />
 
+      <Tabs value={view} onValueChange={(v) => setView(v as typeof view)}>
+        <TabsList>
+          <TabsTrigger value="directory" className="gap-1.5">
+            <LayoutGrid className="w-3.5 h-3.5" />
+            Directory
+          </TabsTrigger>
+          <TabsTrigger value="contacts" className="gap-1.5">
+            <Users className="w-3.5 h-3.5" />
+            My suppliers
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="directory" className="mt-6 space-y-4">
+          {offersStatus.isLoading ? (
+            <div className="card-elevated p-4 flex items-center gap-2 text-sm text-muted-foreground">
+              <Spinner className="w-4 h-4" />
+              Checking supplier API status…
+            </div>
+          ) : offersStatus.data ? (
+            <div className="card-elevated p-4 space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge
+                  variant={offersStatus.data.cj.configured ? "secondary" : "outline"}
+                  className="gap-1.5 py-1"
+                >
+                  <Truck className="w-3 h-3" />
+                  CJ: {offersStatus.data.cj.configured ? "live API" : "catalog only"}
+                </Badge>
+                <Badge
+                  variant={offersStatus.data.aliexpress.configured ? "secondary" : "outline"}
+                  className="gap-1.5 py-1"
+                >
+                  <Truck className="w-3 h-3" />
+                  AliExpress:{" "}
+                  {offersStatus.data.aliexpress.configured ? "live API" : "catalog only"}
+                </Badge>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {offersStatus.data.cj.configured ? (
+                  <Button size="sm" variant="outline" asChild>
+                    <a href={`${getDashboardPath("search")}?platform=cj&live=true`}>
+                      Search CJ in Discover
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </Button>
+                ) : null}
+                {offersStatus.data.aliexpress.configured ? (
+                  <Button size="sm" variant="outline" asChild>
+                    <a href={`${getDashboardPath("search")}?platform=aliexpress&live=true`}>
+                      Search AliExpress in Discover
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </Button>
+                ) : null}
+              </div>
+              {!offersStatus.data.cj.configured && !offersStatus.data.aliexpress.configured ? (
+                <p className="text-xs text-muted-foreground">
+                  Add CJ or AliExpress API keys to enable live product discovery from the supplier
+                  directory.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant={!catalogCategory ? "default" : "outline"}
+              onClick={() => setCatalogCategory(undefined)}
+            >
+              All
+            </Button>
+            {PRODUCT_CATEGORIES.map((cat) => (
+              <Button
+                key={cat}
+                size="sm"
+                variant={catalogCategory === cat ? "default" : "outline"}
+                onClick={() => setCatalogCategory(cat)}
+                className="capitalize"
+              >
+                {cat}
+              </Button>
+            ))}
+          </div>
+
+          {catalogQuery.isLoading ? (
+            <div className="flex justify-center py-16">
+              <Spinner className="w-8 h-8" />
+            </div>
+          ) : catalogQuery.data && catalogQuery.data.length > 0 ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {catalogQuery.data.map((entry) => (
+                <article key={entry.id} className="card-elevated p-4">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div>
+                      <p className="font-medium capitalize">{entry.platform}</p>
+                      <p className="text-sm text-muted-foreground capitalize">
+                        {entry.category}
+                        {entry.subcategory ? ` · ${entry.subcategory}` : ""}
+                      </p>
+                    </div>
+                    <Badge variant="outline">{entry.coverageScore}% coverage</Badge>
+                  </div>
+                  {entry.notes ? (
+                    <p className="text-xs text-muted-foreground mb-3">{entry.notes}</p>
+                  ) : null}
+                  {entry.searchUrl ? (
+                    <Button size="sm" variant="outline" asChild>
+                      <a href={entry.searchUrl} target="_blank" rel="noopener noreferrer">
+                        Browse catalog
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    </Button>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              icon={Package}
+              title="No catalog entries"
+              description="Run the supplier_catalog migration to seed CJ and AliExpress category rows."
+            />
+          )}
+        </TabsContent>
+
+        <TabsContent value="contacts" className="mt-6 space-y-4">
       {offersStatus.data ? (
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline" className="gap-1.5 py-1">
@@ -247,6 +394,9 @@ export default function SupplierVetting() {
           }}
         />
       )}
+
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={dialogOpen} onOpenChange={(open) => !open && resetForm()}>
         <DialogContent>

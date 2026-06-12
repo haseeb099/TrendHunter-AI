@@ -1,5 +1,6 @@
 import type { ProductSearchResult, RegionCode } from "@shared/searchTypes";
 import { ENV } from "../_core/env";
+import { PROVIDER_FETCH_LIMIT } from "./constants";
 import { resolveRegion } from "./regions";
 
 let cachedToken: { value: string; expiresAt: number } | null = null;
@@ -48,17 +49,46 @@ export function isEbayConfigured() {
   return Boolean(ENV.ebayClientId && ENV.ebayClientSecret);
 }
 
-export async function searchEbay(
-  query: string,
-  region?: RegionCode
-): Promise<ProductSearchResult[]> {
-  if (!isEbayConfigured()) return [];
+type EbayItemSummary = {
+  itemId?: string;
+  title?: string;
+  price?: { value?: string; currency?: string };
+  image?: { imageUrl?: string };
+  itemWebUrl?: string;
+  seller?: { username?: string };
+  shippingOptions?: Array<{ maxEstimatedDeliveryDate?: string }>;
+};
 
+function mapEbayItem(item: EbayItemSummary, region: RegionCode | undefined, currency: string): ProductSearchResult {
+  return {
+    id: item.itemId ?? crypto.randomUUID(),
+    title: item.title ?? "Untitled listing",
+    price: Number.parseFloat(item.price?.value ?? "0") || 0,
+    platform: "ebay",
+    image: item.image?.imageUrl ?? null,
+    shippingDays: estimateShippingDays(item.shippingOptions?.[0]?.maxEstimatedDeliveryDate),
+    supplier: item.seller?.username ?? "eBay seller",
+    rating: null,
+    sourceUrl: item.itemWebUrl ?? null,
+    currency: item.price?.currency ?? currency,
+    region,
+    shipFrom: resolveRegion(region).defaultShipFrom,
+    warehouse: resolveRegion(region).defaultShipFrom,
+  };
+}
+
+async function fetchEbayPage(
+  query: string,
+  region: RegionCode | undefined,
+  offset: number,
+  limit: number
+): Promise<ProductSearchResult[]> {
   const mapping = resolveRegion(region);
   const token = await getEbayAccessToken();
   const params = new URLSearchParams({
     q: query,
-    limit: "20",
+    limit: String(limit),
+    offset: String(offset),
   });
 
   const response = await fetch(
@@ -76,33 +106,31 @@ export async function searchEbay(
     throw new Error(`eBay search failed (${response.status}): ${text}`);
   }
 
-  const data = (await response.json()) as {
-    itemSummaries?: Array<{
-      itemId?: string;
-      title?: string;
-      price?: { value?: string; currency?: string };
-      image?: { imageUrl?: string };
-      itemWebUrl?: string;
-      seller?: { username?: string };
-      shippingOptions?: Array<{ maxEstimatedDeliveryDate?: string }>;
-    }>;
-  };
+  const data = (await response.json()) as { itemSummaries?: EbayItemSummary[] };
+  return (data.itemSummaries ?? []).map((item) => mapEbayItem(item, region, mapping.currency));
+}
 
-  return (data.itemSummaries ?? []).map((item) => ({
-    id: item.itemId ?? crypto.randomUUID(),
-    title: item.title ?? "Untitled listing",
-    price: Number.parseFloat(item.price?.value ?? "0") || 0,
-    platform: "ebay",
-    image: item.image?.imageUrl ?? null,
-    shippingDays: estimateShippingDays(item.shippingOptions?.[0]?.maxEstimatedDeliveryDate),
-    supplier: item.seller?.username ?? "eBay seller",
-    rating: null,
-    sourceUrl: item.itemWebUrl ?? null,
-    currency: item.price?.currency ?? mapping.currency,
-    region,
-    shipFrom: mapping.defaultShipFrom,
-    warehouse: mapping.defaultShipFrom,
-  }));
+export async function searchEbay(
+  query: string,
+  region?: RegionCode,
+  options?: { maxResults?: number }
+): Promise<ProductSearchResult[]> {
+  if (!isEbayConfigured()) return [];
+
+  const maxResults = options?.maxResults ?? PROVIDER_FETCH_LIMIT;
+  const results: ProductSearchResult[] = [];
+  let offset = 0;
+
+  while (results.length < maxResults) {
+    const pageLimit = Math.min(PROVIDER_FETCH_LIMIT, maxResults - results.length);
+    const page = await fetchEbayPage(query, region, offset, pageLimit);
+    if (page.length === 0) break;
+    results.push(...page);
+    offset += page.length;
+    if (page.length < pageLimit) break;
+  }
+
+  return results;
 }
 
 function estimateShippingDays(maxDeliveryDate?: string): number | null {

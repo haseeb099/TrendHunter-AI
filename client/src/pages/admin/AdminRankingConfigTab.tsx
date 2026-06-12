@@ -16,8 +16,7 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { trpc } from "@/lib/trpc";
-import type { RankingWeights } from "../../../../server/ranking/scoreProduct";
-import { RANKING_WEIGHT_KEYS } from "../../../../server/ranking/scoreProduct";
+import { RANKING_WEIGHT_KEYS, type RankingWeights } from "@shared/ranking";
 import { Save, Scale, SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
 
@@ -111,7 +110,7 @@ export default function AdminRankingConfigTab() {
     <div className="space-y-8 admin-stagger">
       <AdminPageHeader
         title="Ranking weights"
-        description="Tune scoreProduct v2 signal weights without redeploying. Active configs override code defaults per region."
+        description="Tune scoreProduct v3 signal weights without redeploying. Active configs override code defaults per region."
         icon={Scale}
       />
 
