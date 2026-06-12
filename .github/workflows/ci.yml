@@ -76,6 +76,10 @@ jobs:
           NODE_ENV: production
           FREE_RETAIL_ENABLED: "false"
           STRICT_TRUTH_MODE: "true"
+          RESEND_API_KEY: re_ci_test_key_not_used_for_real_email
+          STRIPE_SECRET_KEY: sk_test_ci_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_ci_placeholder
+          STRIPE_PUBLISHABLE_KEY: pk_test_ci_placeholder
 
       - name: Wait for server
         run: |

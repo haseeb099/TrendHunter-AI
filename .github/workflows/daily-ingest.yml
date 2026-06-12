@@ -8,7 +8,9 @@ on:
 
 jobs:
   ingest:
-    runs-on: ubuntu-latest
+    # Self-hosted runner reaches local Docker MySQL (127.0.0.1:3306).
+    # Falls back to GitHub-hosted when a cloud DATABASE_URL is configured.
+    runs-on: ${{ vars.INGEST_RUNNER || 'self-hosted' }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -19,6 +21,26 @@ jobs:
         with:
           node-version: "20"
           cache: "pnpm"
+
+      - name: Ensure MySQL is reachable (self-hosted)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ok = $false
+          foreach ($i in 1..12) {
+            try {
+              $tcp = New-Object System.Net.Sockets.TcpClient
+              $tcp.Connect("127.0.0.1", 3306)
+              $tcp.Close()
+              $ok = $true
+              break
+            } catch {
+              Start-Sleep -Seconds 5
+            }
+          }
+          if (-not $ok) {
+            Write-Error "MySQL not reachable on 127.0.0.1:3306 — start Docker: pnpm db:up"
+          }
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
