@@ -24,7 +24,7 @@ jobs:
 
       - name: Ensure MySQL is reachable (self-hosted)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: powershell
         run: |
           $ok = $false
           foreach ($i in 1..12) {
@@ -39,7 +39,7 @@ jobs:
             }
           }
           if (-not $ok) {
-            Write-Error "MySQL not reachable on 127.0.0.1:3306 — start Docker: pnpm db:up"
+            Write-Error "MySQL not reachable on 127.0.0.1:3306 - start Docker: pnpm db:up"
           }
 
       - name: Install dependencies
