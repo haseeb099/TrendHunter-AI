@@ -65,6 +65,7 @@ jobs:
           DATABASE_URL: mysql://trendhunter:trendhunter@127.0.0.1:3306/trendhunter
 
       - name: Seed E2E catalog fixtures
+        timeout-minutes: 3
         run: pnpm tsx scripts/seed-ci-e2e.ts
         env:
           DATABASE_URL: mysql://trendhunter:trendhunter@127.0.0.1:3306/trendhunter
