@@ -64,6 +64,13 @@ jobs:
         env:
           DATABASE_URL: mysql://trendhunter:trendhunter@127.0.0.1:3306/trendhunter
 
+      - name: Seed E2E catalog fixtures
+        run: pnpm tsx scripts/seed-ci-e2e.ts
+        env:
+          DATABASE_URL: mysql://trendhunter:trendhunter@127.0.0.1:3306/trendhunter
+          FREE_RETAIL_ENABLED: "true"
+          STRICT_TRUTH_MODE: "false"
+
       - name: Start server
         run: |
           pnpm build
