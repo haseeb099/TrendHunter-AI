@@ -21,7 +21,7 @@ export function ProductDeltaPanel({ product, region = "US" }: Props) {
   if (!data) {
     return (
       <Card className="p-4 text-sm text-muted-foreground">
-        No snapshot diff yet — available after the next daily ingest.
+        No snapshot diff yet — check back after the next data refresh.
       </Card>
     );
   }

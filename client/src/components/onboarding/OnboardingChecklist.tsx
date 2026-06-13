@@ -1,5 +1,7 @@
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Progress } from "@/components/ui/progress";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useOnboarding } from "@/_core/hooks/useOnboarding";
 import { getDashboardPath } from "@/config/dashboardNav";
 import {
@@ -11,6 +13,7 @@ import {
   DollarSign,
   Sparkles,
   X,
+  ListChecks,
 } from "lucide-react";
 import { Link } from "wouter";
 
@@ -58,56 +61,107 @@ export function OnboardingChecklist() {
   if (!showChecklist) return null;
 
   const completedCount = STEPS.filter((s) => state[s.id]).length;
+  const progress = Math.round((completedCount / STEPS.length) * 100);
+  const nextStep = STEPS.find((s) => !state[s.id]);
 
   return (
-    <Card className="surface-elevated p-4 sm:p-5 border-primary/20 bg-primary/5">
-      <div className="flex items-start justify-between gap-3 mb-4">
-        <div>
-          <p className="text-sm font-semibold">Getting started</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {completedCount}/{STEPS.length} steps — search → watchlist → pipeline → profit → social
-            kit
-          </p>
-        </div>
-        <Button
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
           type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Dismiss checklist"
-          onClick={dismiss}
+          className="inline-flex items-center gap-2 rounded-lg border border-primary/25 bg-primary/5 px-2.5 py-1.5 text-xs hover:bg-primary/10 transition-colors max-w-[11rem] sm:max-w-none"
+          aria-label={`Getting started, ${completedCount} of ${STEPS.length} steps complete`}
         >
-          <X className="w-4 h-4" />
-        </Button>
-      </div>
-      <ul className="space-y-2">
-        {STEPS.map((step) => {
-          const done = state[step.id];
-          const Icon = step.icon;
-          return (
-            <li key={step.id}>
-              <Link
-                href={step.href}
-                className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 text-sm transition-colors ${
-                  done
-                    ? "border-success/30 bg-success/5 text-foreground"
-                    : "border-border bg-card hover:bg-muted/30"
-                }`}
-              >
-                {done ? (
-                  <CheckCircle2 className="w-4 h-4 shrink-0 text-success" />
-                ) : (
-                  <Circle className="w-4 h-4 shrink-0 text-muted-foreground" />
-                )}
-                <Icon className="w-4 h-4 shrink-0 text-muted-foreground" />
-                <div className="min-w-0 text-left">
-                  <p className="font-medium leading-none">{step.label}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{step.hint}</p>
-                </div>
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-    </Card>
+          <ListChecks className="h-3.5 w-3.5 shrink-0 text-primary" />
+          <span className="hidden sm:inline font-medium text-foreground">Setup</span>
+          <span className="tabular-nums font-semibold text-foreground">
+            {completedCount}/{STEPS.length}
+          </span>
+          <Progress value={progress} className="hidden sm:block h-1 w-14 shrink-0" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 p-0">
+        <div className="flex items-start justify-between gap-2 border-b px-3 py-2.5">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold leading-none">Getting started</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {completedCount}/{STEPS.length} complete
+              {nextStep ? (
+                <>
+                  {" "}
+                  · Next: <span className="text-foreground">{nextStep.label}</span>
+                </>
+              ) : null}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Dismiss checklist"
+            onClick={dismiss}
+          >
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
+
+        <div className="flex items-center justify-center gap-1.5 px-3 py-2.5 border-b bg-muted/20">
+          {STEPS.map((step) => {
+            const done = state[step.id];
+            const Icon = step.icon;
+            return (
+              <Tooltip key={step.id}>
+                <TooltipTrigger asChild>
+                  <Link
+                    href={step.href}
+                    className={`flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${
+                      done
+                        ? "border-success/40 bg-success/10 text-success"
+                        : "border-border bg-card text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                    }`}
+                    aria-label={step.label}
+                  >
+                    {done ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Icon className="h-3.5 w-3.5" />}
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p className="font-medium">{step.label}</p>
+                  <p className="text-background/70">{step.hint}</p>
+                </TooltipContent>
+              </Tooltip>
+            );
+          })}
+        </div>
+
+        <ul className="max-h-64 overflow-y-auto p-2">
+          {STEPS.map((step) => {
+            const done = state[step.id];
+            const Icon = step.icon;
+            return (
+              <li key={step.id}>
+                <Link
+                  href={step.href}
+                  className={`flex items-center gap-2.5 rounded-md px-2 py-2 text-sm transition-colors ${
+                    done
+                      ? "text-muted-foreground"
+                      : "hover:bg-muted/40 text-foreground"
+                  }`}
+                >
+                  {done ? (
+                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-success" />
+                  ) : (
+                    <Circle className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                  )}
+                  <Icon className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                  <span className={`truncate ${done ? "line-through" : "font-medium"}`}>
+                    {step.label}
+                  </span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </PopoverContent>
+    </Popover>
   );
 }

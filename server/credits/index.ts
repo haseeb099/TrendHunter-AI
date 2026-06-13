@@ -7,7 +7,7 @@ import {
 } from "@shared/credits";
 import type { PlanId } from "@shared/plans";
 import { TRPCError } from "@trpc/server";
-import { eq, and, gte, sql, desc } from "drizzle-orm";
+import { eq, and, gte, sql } from "drizzle-orm";
 import { creditTransactions, userCredits } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { assertSubscriptionActive, isAdmin, resolveEffectivePlan } from "../plans";
@@ -238,16 +238,24 @@ export async function creditPurchaseExists(stripeSessionId: string): Promise<boo
   if (!db) return false;
 
   const rows = await db
-    .select({ metadata: creditTransactions.metadata })
+    .select({ id: creditTransactions.id })
     .from(creditTransactions)
-    .where(eq(creditTransactions.type, "purchase"))
-    .orderBy(desc(creditTransactions.createdAt))
-    .limit(200);
+    .where(
+      and(
+        eq(creditTransactions.type, "purchase"),
+        eq(creditTransactions.stripeSessionId, stripeSessionId)
+      )
+    )
+    .limit(1);
 
-  return rows.some((row) => {
-    const meta = row.metadata as Record<string, unknown> | null;
-    return meta?.stripeSessionId === stripeSessionId;
-  });
+  return rows.length > 0;
+}
+
+/** True when a live intel/search response returned fresh provider data worth charging for. */
+export function isBillableLiveFetch(
+  data: { isLive?: boolean; stale?: boolean } | null | undefined
+): boolean {
+  return Boolean(data?.isLive && !data?.stale);
 }
 
 export async function grantCredits(
@@ -293,5 +301,7 @@ export async function grantCredits(
     type,
     action: type,
     metadata: metadata ?? null,
+    stripeSessionId:
+      typeof metadata?.stripeSessionId === "string" ? metadata.stripeSessionId : null,
   });
 }

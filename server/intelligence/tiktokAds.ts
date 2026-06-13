@@ -1,9 +1,18 @@
 import type { TikTokAdCreative, TikTokAdsSnapshot } from "@shared/intelligenceTypes";
+import type { IntelFetchOptions } from "@shared/intelFetch";
+import { createLogger } from "../_core/logger";
 import { ENV } from "../_core/env";
 import { and, desc, eq, gt } from "drizzle-orm";
 import { tiktokAdsSnapshots } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { canUseProviderToday, incrementDailyApiUsage } from "../dataPlatform/apiUsage";
+import {
+  isRapidTikTokApiConfigured,
+  searchTikTokVideosByKeyword,
+  type TikTokApi23Video,
+} from "../search/rapidApi/tiktokApi23";
+
+const log = createLogger("intel.tiktok");
 
 const REGION_COUNTRY: Record<string, string> = {
   US: "US",
@@ -13,11 +22,16 @@ const REGION_COUNTRY: Record<string, string> = {
 };
 
 export function isTikTokAdsConfigured(): boolean {
-  return Boolean(ENV.searchApiKey) || Boolean(ENV.tiktokShopApiKey);
+  return (
+    Boolean(ENV.searchApiKey) ||
+    Boolean(ENV.tiktokShopApiKey) ||
+    isRapidTikTokApiConfigured()
+  );
 }
 
-export function tikTokAdsProvider(): "searchapi" | "scrapecreators" | null {
+export function tikTokAdsProvider(): "searchapi" | "scrapecreators" | "rapidapi_tiktok" | null {
   if (ENV.searchApiKey) return "searchapi";
+  if (isRapidTikTokApiConfigured()) return "rapidapi_tiktok";
   if (ENV.tiktokShopApiKey) return "scrapecreators";
   return null;
 }
@@ -211,6 +225,62 @@ async function fetchScrapeCreatorsTikTokContent(
   };
 }
 
+function mapRapidApiVideosToCreatives(videos: TikTokApi23Video[]): {
+  creatives: TikTokAdCreative[];
+  advertisers: Set<string>;
+} {
+  const advertisers = new Set<string>();
+  const creatives: TikTokAdCreative[] = videos.slice(0, 15).map((item, index) => {
+    advertisers.add(item.author);
+    return {
+      id: item.id || `tt-rapid-${index}`,
+      advertiserName: item.author,
+      bodyText: item.desc,
+      videoUrl: item.shareUrl,
+      coverUrl: item.coverUrl,
+      firstShown: item.createTime ? new Date(item.createTime * 1000).toISOString() : null,
+      lastShown: null,
+      isActive: true,
+    };
+  });
+  return { creatives, advertisers };
+}
+
+async function fetchRapidApiTikTokSearch(
+  keyword: string,
+  region: string
+): Promise<TikTokAdsSnapshot | null> {
+  if (!isRapidTikTokApiConfigured()) return null;
+
+  const videos = await searchTikTokVideosByKeyword(keyword, {
+    count: ENV.rapidApiTiktokApiMaxItems,
+  });
+  if (videos.length === 0) return null;
+
+  const { creatives, advertisers } = mapRapidApiVideosToCreatives(videos);
+  const gaps: string[] = [];
+  if (videos.length === 0) {
+    gaps.push("No TikTok videos found for this keyword yet");
+  } else {
+    gaps.push("Organic TikTok search via RapidAPI (Tikfly) — hook and format inspiration");
+  }
+  if (videos.every((v) => (v.playCount ?? 0) < 10_000)) {
+    gaps.push("Low view counts — niche may be early or underserved");
+  }
+
+  return {
+    keyword,
+    region,
+    activeAdCount: videos.length,
+    advertiserCount: advertisers.size,
+    creatives,
+    gaps,
+    fetchedAt: new Date().toISOString(),
+    isLive: true,
+    source: "rapidapi_tiktok",
+  };
+}
+
 async function fetchTikTokAdsLive(
   keyword: string,
   region: string
@@ -219,7 +289,15 @@ async function fetchTikTokAdsLive(
     const fromSearchApi = await fetchSearchApiTikTokAds(keyword, region);
     if (fromSearchApi) return fromSearchApi;
   }
-  return fetchScrapeCreatorsTikTokContent(keyword, region);
+  if (isRapidTikTokApiConfigured()) {
+    const fromRapid = await fetchRapidApiTikTokSearch(keyword, region);
+    if (fromRapid) return fromRapid;
+  }
+  if (ENV.tiktokShopApiKey) {
+    const fromScrapeCreators = await fetchScrapeCreatorsTikTokContent(keyword, region);
+    if (fromScrapeCreators) return fromScrapeCreators;
+  }
+  return null;
 }
 
 export async function saveTikTokAdsSnapshot(snapshot: TikTokAdsSnapshot) {
@@ -262,15 +340,16 @@ function rowToSnapshot(
 export async function getTikTokAdsSnapshot(
   keyword: string,
   region: string,
-  options?: { live?: boolean }
+  options?: IntelFetchOptions
 ): Promise<TikTokAdsSnapshot | null> {
   const kw = keyword.trim().toLowerCase();
   if (!kw) return null;
 
   const db = await getDb();
   const now = new Date();
+  let cached: TikTokAdsSnapshot | null = null;
 
-  if (db && !options?.live) {
+  if (!options?.live && db) {
     const rows = await db
       .select()
       .from(tiktokAdsSnapshots)
@@ -284,14 +363,37 @@ export async function getTikTokAdsSnapshot(
       .orderBy(desc(tiktokAdsSnapshots.fetchedAt))
       .limit(1);
 
-    if (rows[0]) return rowToSnapshot(rows[0]);
+    if (rows[0]) cached = rowToSnapshot(rows[0]);
   }
 
-  if (options?.live) {
-    const live = await fetchTikTokAdsLive(kw, region);
-    if (live) {
-      await saveTikTokAdsSnapshot(live);
-      return live;
+  if (cached) return cached;
+
+  if (options?.live || options?.warm) {
+    const started = Date.now();
+    try {
+      const fetched = await fetchTikTokAdsLive(kw, region);
+      if (fetched) {
+        await saveTikTokAdsSnapshot(fetched);
+        return fetched;
+      }
+      log.warn("fetch_empty", {
+        provider: "tiktok_ads",
+        keyword: kw,
+        region,
+        live: Boolean(options?.live),
+        warm: Boolean(options?.warm),
+        latencyMs: Date.now() - started,
+      });
+    } catch (err) {
+      log.warn("fetch_failed", {
+        provider: "tiktok_ads",
+        keyword: kw,
+        region,
+        live: Boolean(options?.live),
+        warm: Boolean(options?.warm),
+        latencyMs: Date.now() - started,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -311,8 +413,14 @@ export async function getTikTokAdsSnapshot(
 export async function ingestTikTokAdKeywords(keywords: string[], region: string) {
   let count = 0;
   for (const keyword of keywords) {
-    const canUse = await canUseProviderToday("tiktok_ads", ENV.tiktokAdsDailyCap);
-    if (!canUse) break;
+    const provider = tikTokAdsProvider();
+    if (!provider) break;
+
+    if (provider === "searchapi" || provider === "scrapecreators") {
+      const canUse = await canUseProviderToday("tiktok_ads", ENV.tiktokAdsDailyCap);
+      if (!canUse) break;
+    }
+
     const snapshot = await fetchTikTokAdsLive(keyword, region);
     if (snapshot) {
       await saveTikTokAdsSnapshot(snapshot);

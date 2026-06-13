@@ -18,7 +18,6 @@ import { FormSection } from "@/components/workspace/FormSection";
 
 import { InsightCard } from "@/components/workspace/InsightCard";
 
-import { DataCoverageBanner } from "@/components/intelligence/DataCoverageBanner";
 
 import { DataFreshnessBadge } from "@/components/intelligence/DataFreshnessBadge";
 
@@ -195,10 +194,6 @@ export default function MarketGapFinder() {
           <DataFreshnessBadge synthetic />
         </div>
       ) : null}
-
-
-
-      <DataCoverageBanner pageId="market-gap" />
 
 
 

@@ -274,6 +274,54 @@ function returnRiskScore(product: ProductSearchResult): number {
 
 
 
+/** Sustained demand — decoupled from short-term momentum spike. */
+function demandPersistenceScore(
+  changePercent90d: number | null | undefined,
+  momentumLabel: "rising" | "stable" | "declining" | null | undefined
+): number | null {
+  if (changePercent90d != null) {
+    const abs = Math.abs(changePercent90d);
+    if (abs < 10) return 78;
+    if (changePercent90d >= 10 && changePercent90d < 25) return 85;
+    if (changePercent90d >= 25 && changePercent90d < 45) return 68;
+    if (changePercent90d >= 45) return 52;
+    if (changePercent90d <= -25) return 35;
+    return 48;
+  }
+  if (momentumLabel === "stable") return 72;
+  if (momentumLabel === "rising") return 62;
+  if (momentumLabel === "declining") return 38;
+  return null;
+}
+
+
+
+const ALL_RANKING_SIGNAL_NAMES = [
+
+  "Trend momentum",
+
+  "Demand persistence",
+
+  "Meta ad saturation",
+
+  "TikTok creative pressure",
+
+  "Margin spread",
+
+  "Supplier confidence",
+
+  "Competition intensity",
+
+  "Freshness",
+
+  "Query intent match",
+
+  "Return risk",
+
+] as const;
+
+
+
 function competitionScore(listingCount?: number): number | null {
 
   if (!listingCount) return null;
@@ -310,7 +358,9 @@ function buildExplanation(
 
   staleFeatures?: boolean,
 
-  inferredScores?: boolean
+  inferredScores?: boolean,
+
+  scoreCoverage?: number
 
 ): RankingExplanation {
 
@@ -412,6 +462,21 @@ function buildExplanation(
 
 
 
+  const signalsUsed = signals.map((s) => s.name);
+
+  const signalsMissing = ALL_RANKING_SIGNAL_NAMES.filter((n) => {
+    const s = signals.find((sig) => sig.name === n);
+    return !s || Boolean(s.inferred);
+  });
+
+  const partialScore =
+
+    staleFeatures === true ||
+
+    (scoreCoverage != null ? scoreCoverage < 0.95 : signalsMissing.length > 0);
+
+
+
   return {
 
     version: RANKING_VERSION,
@@ -421,6 +486,14 @@ function buildExplanation(
     topSignals,
 
     signals: withContribution,
+
+    signalsUsed,
+
+    signalsMissing,
+
+    partialScore,
+
+    scoreCoverage,
 
     confidence,
 
@@ -476,6 +549,9 @@ export async function scoreProduct(
 
     allowHeuristicScores?: boolean;
 
+    /** When true, refresh intel snapshots on cache miss (ingest/live only). */
+    fetchLiveIntel?: boolean;
+
     timeframe?: TrendWindow;
 
   }
@@ -520,6 +596,8 @@ export async function scoreProduct(
 
   let momentum = features?.momentumScore;
 
+  let demandPersistence = demandPersistenceScore(undefined, undefined);
+
   let adSat = features?.adSaturationScore;
 
   let tiktokPressure = features?.tiktokPressureScore;
@@ -532,32 +610,50 @@ export async function scoreProduct(
 
 
 
-  if (!features || staleFeatures) {
+  const fetchLiveIntel = options?.fetchLiveIntel ?? false;
+
+
+
+  if ((!features || staleFeatures) && fetchLiveIntel) {
 
     const [trend, ads, tiktok] = await Promise.all([
 
-      getTrendSignal(keyword, region),
+      getTrendSignal(keyword, region, { live: true }),
 
-      getAdLibrarySnapshot(keyword, region),
+      getAdLibrarySnapshot(keyword, region, { live: true }),
 
-      getTikTokAdsSnapshot(keyword, region),
+      getTikTokAdsSnapshot(keyword, region, { live: true }),
 
     ]);
 
 
 
     const windowedTrend =
+
       trend && options?.timeframe ? applyTrendWindow(trend, options.timeframe) : trend;
 
     momentum =
+
       windowedTrend?.momentumScore ?? (allowInferred ? base.score : momentum);
+
+    demandPersistence =
+
+      demandPersistenceScore(
+
+        windowedTrend?.changePercent90d,
+
+        windowedTrend?.momentumLabel
+
+      ) ?? demandPersistence;
 
     adSat = adOpportunityScore(ads?.activeAdCount) ?? adSat;
 
     tiktokPressure = tiktokOpportunityScore(tiktok?.activeAdCount) ?? tiktokPressure;
 
     if (allowInferred) {
+
       supplier = supplier ?? supplierScore(product);
+
     }
 
     competition = competitionScore(options?.listingCount) ?? competition;
@@ -587,6 +683,26 @@ export async function scoreProduct(
       freshnessScore: freshness ?? undefined,
 
     });
+
+  } else if (features) {
+
+    demandPersistence =
+
+      demandPersistenceScore(
+
+        undefined,
+
+        momentum != null && momentum >= 70
+
+          ? "rising"
+
+          : momentum != null && momentum <= 40
+
+            ? "declining"
+
+            : "stable"
+
+      ) ?? demandPersistence;
 
   }
 
@@ -622,7 +738,15 @@ export async function scoreProduct(
 
       name: "Demand persistence",
 
-      resolved: resolveSignal(momentum, allowInferred ? base.score : null, allowInferred),
+      resolved: resolveSignal(
+
+        demandPersistence,
+
+        allowInferred ? Math.max(40, (momentum ?? base.score) - 10) : null,
+
+        allowInferred
+
+      ),
 
       weight: weights.demandPersistence,
 
@@ -732,6 +856,10 @@ export async function scoreProduct(
 
   const usedWeight = activeSignals.reduce((sum, s) => sum + s.weight, 0);
 
+  const totalWeight = weightSum(weights);
+
+  const scoreCoverage = totalWeight > 0 ? usedWeight / totalWeight : 0;
+
   const fused =
 
     usedWeight > 0
@@ -820,7 +948,19 @@ export async function scoreProduct(
 
     inferredScores,
 
-    rankingExplanation: buildExplanation(signals, confidence, staleFeatures, inferredScores),
+    rankingExplanation: buildExplanation(
+
+      signals,
+
+      confidence,
+
+      staleFeatures,
+
+      inferredScores,
+
+      scoreCoverage
+
+    ),
 
   };
 
@@ -838,6 +978,7 @@ export async function scoreProducts(
     query?: string;
     forceTrending?: boolean;
     allowHeuristicScores?: boolean;
+    fetchLiveIntel?: boolean;
     timeframe?: TrendWindow;
   }
 
@@ -856,6 +997,8 @@ export async function scoreProducts(
         listingCount: p.alsoListedOn ? p.alsoListedOn.length + 1 : 1,
 
         allowHeuristicScores: options?.allowHeuristicScores,
+
+        fetchLiveIntel: options?.fetchLiveIntel,
 
         timeframe: options?.timeframe,
 

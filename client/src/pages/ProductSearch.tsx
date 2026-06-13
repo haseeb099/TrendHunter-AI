@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import type { ProductOffer } from "@shared/searchTypes";
 import { Button } from "@/components/ui/button";
@@ -22,18 +22,20 @@ import { ProductDetailDrawer } from "@/components/ProductDetailDrawer";
 import type { ProductDrawerTab } from "@/components/product-workspace/types";
 import type { ProductValidationResult } from "@/components/product-workspace/types";
 import { SearchFilterDrawer } from "@/components/SearchFilterDrawer";
-import { Search, Filter, Info, Sparkles, Compass, Zap, Database } from "lucide-react";
+import { Search, Filter, Info, Sparkles, Compass, Zap, Database, RotateCcw } from "lucide-react";
 import { DiscoverToolbar } from "@/components/discover/DiscoverToolbar";
+import { ResultsPagination } from "@/components/ResultsPagination";
 import { useTrendWindow } from "@/_core/hooks/useTrendWindow";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { DataFreshnessBadge } from "@/components/intelligence/DataFreshnessBadge";
-import { MarketplaceCoverageBar } from "@/components/intelligence/MarketplaceCoverageBar";
 import { Switch } from "@/components/ui/switch";
 import { trpc } from "@/lib/trpc";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 import type { ProductHuntFilters, ProductSearchResult, RegionCode } from "@shared/searchTypes";
 import { useOnboarding } from "@/_core/hooks/useOnboarding";
+import { ProviderStatusBar } from "@/components/intelligence/ProviderStatusBar";
+import { toastTrpcError } from "@/lib/trpcErrors";
 
 const LIVE_SEARCH_PREF_KEY = "trendhunter:liveSearch";
 
@@ -76,7 +78,7 @@ function isSearchPlatform(value: string): value is SearchPlatform {
   return (SEARCH_PLATFORMS as readonly string[]).includes(value);
 }
 
-const PAGE_SIZE_OPTIONS = [50, 100, 200, 500] as const;
+const PAGE_SIZE_OPTIONS = [24, 48, 96, 200] as const;
 
 export default function ProductSearch() {
   const [location] = useLocation();
@@ -95,9 +97,9 @@ export default function ProductSearch() {
   const [detailProduct, setDetailProduct] = useState<ProductSearchResult | null>(null);
   const [drawerTab, setDrawerTab] = useState<ProductDrawerTab>("overview");
   const [liveSearch, setLiveSearch] = useState(readLiveSearchPref);
-  const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(50);
-  const [cursor, setCursor] = useState(0);
-  const [accumulatedResults, setAccumulatedResults] = useState<ProductSearchResult[]>([]);
+  const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(48);
+  const [currentPage, setCurrentPage] = useState(1);
+  const resultsAnchorRef = useRef<HTMLDivElement>(null);
   const { completeStep } = useOnboarding();
   const { window: trendWindow, setWindow: setTrendWindow, label: trendWindowLabel } = useTrendWindow();
   const { isAuthenticated } = useAuth();
@@ -115,6 +117,9 @@ export default function ProductSearch() {
   };
 
   const filterOptions = trpc.search.getFilterOptions.useQuery();
+  const marketplaceCoverage = trpc.search.getMarketplaceCoverage.useQuery(undefined, {
+    enabled: activeTab === "search",
+  });
   const savedSearchesQuery = trpc.search.getSavedSearches.useQuery(undefined, {
     enabled: activeTab === "search",
   });
@@ -181,8 +186,8 @@ export default function ProductSearch() {
   const recordDiscoverView = trpc.analytics.recordDiscoverView.useMutation();
 
   const paginationParams = useMemo(
-    () => ({ limit: pageSize, cursor }),
-    [pageSize, cursor]
+    () => ({ limit: pageSize, cursor: (currentPage - 1) * pageSize }),
+    [pageSize, currentPage]
   );
 
   const trendingQuery = trpc.trending.getFeed.useQuery(
@@ -224,8 +229,7 @@ export default function ProductSearch() {
   );
 
   useEffect(() => {
-    setCursor(0);
-    setAccumulatedResults([]);
+    setCurrentPage(1);
   }, [
     activeTab,
     submittedQuery,
@@ -245,27 +249,6 @@ export default function ProductSearch() {
     trendWindow,
     discoverQuery,
   ]);
-
-  useEffect(() => {
-    const data = activeTab === "discover" ? trendingQuery.data : searchQuery.data;
-    if (!data) return;
-    if (cursor === 0) {
-      setAccumulatedResults(data.results);
-    } else {
-      setAccumulatedResults((prev) => {
-        const seen = new Set(prev.map((p) => `${p.platform}:${p.id}`));
-        const merged = [...prev];
-        for (const item of data.results) {
-          const key = `${item.platform}:${item.id}`;
-          if (!seen.has(key)) {
-            seen.add(key);
-            merged.push(item);
-          }
-        }
-        return merged;
-      });
-    }
-  }, [activeTab, trendingQuery.dataUpdatedAt, searchQuery.dataUpdatedAt, cursor]);
 
   useEffect(() => {
     if (searchQuery.data?.creditsUsed && searchQuery.data.creditsUsed > 0) {
@@ -391,17 +374,35 @@ export default function ProductSearch() {
     setHuntFilters(rest);
   };
 
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    resultsAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   const activeData = activeTab === "discover" ? trendingQuery.data : searchQuery.data;
-  const isLoading =
+  const isInitialLoading =
     (activeTab === "discover" ? trendingQuery.isFetching : searchQuery.isFetching) &&
-    cursor === 0;
-  const isLoadingMore =
+    !activeData;
+  const isPageLoading =
     (activeTab === "discover" ? trendingQuery.isFetching : searchQuery.isFetching) &&
-    cursor > 0;
+    Boolean(activeData);
   const activeError = activeTab === "discover" ? trendingQuery.error : searchQuery.error;
-  const displayResults = accumulatedResults.length > 0 ? accumulatedResults : activeData?.results ?? [];
-  const totalCount = activeData?.totalCount ?? displayResults.length;
-  const hasMore = activeData?.nextCursor != null;
+  const refetchActive = activeTab === "discover" ? trendingQuery.refetch : searchQuery.refetch;
+  const noSearchProvidersConfigured =
+    activeTab === "search" &&
+    marketplaceCoverage.data &&
+    marketplaceCoverage.data.search.filter((p) => p.configured).length === 0;
+  const displayResults = activeData?.results ?? [];
+  const totalCount = activeData?.totalCount ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const showingStart = totalCount === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const showingEnd = totalCount === 0 ? 0 : Math.min(currentPage * pageSize, totalCount);
+
+  useEffect(() => {
+    if (currentPage > totalPages && totalCount > 0) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages, totalCount]);
 
   const activeFilterChips = useMemo(() => {
     const chips: string[] = [];
@@ -430,7 +431,7 @@ export default function ProductSearch() {
     trendingQuery.data.warnings?.some((w) => w.toLowerCase().includes("ingest"));
 
   const resultsPanel = (
-    <>
+    <div ref={resultsAnchorRef} className="space-y-4 scroll-mt-24">
       {activeFilterChips.length > 0 ? (
         <div className="flex flex-wrap gap-2">
           {activeFilterChips.map((chip) => (
@@ -441,7 +442,7 @@ export default function ProductSearch() {
         </div>
       ) : null}
 
-      {isLoading ? (
+      {isInitialLoading ? (
         <div className="flex justify-center py-12">
           <div className="space-y-3 text-center">
             <Spinner className="mx-auto h-8 w-8 text-primary" />
@@ -454,8 +455,32 @@ export default function ProductSearch() {
 
       {activeError ? (
         <Alert variant="destructive">
-          <AlertDescription>{activeError.message}</AlertDescription>
+          <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+            <span>{activeError.message}</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="shrink-0"
+              onClick={() => {
+                void refetchActive().catch((err) => toastTrpcError(err));
+              }}
+            >
+              <RotateCcw className="mr-1 h-3.5 w-3.5" />
+              Retry
+            </Button>
+          </AlertDescription>
         </Alert>
+      ) : null}
+
+      {noSearchProvidersConfigured ? (
+        <EmptyState
+          icon={Database}
+          title="No search providers configured"
+          description="Connect at least one marketplace API in your environment to run live searches. Cached catalog results may still appear after daily ingest."
+        >
+          <ProviderStatusBar compact className="mt-4 max-w-xl mx-auto" />
+        </EmptyState>
       ) : null}
 
       {activeData?.warnings?.map((warning) => (
@@ -468,24 +493,26 @@ export default function ProductSearch() {
       {discoverNeedsIngest ? (
         <EmptyState
           icon={Compass}
-          title="Discover needs trending data"
-          description="Trending fills automatically every hour for all regions and categories (US, UK, EU, Global). The queue respects API rate limits and resumes after each hour."
-          action={{
-            label: "Copy ingest command",
-            onClick: () => {
-              void navigator.clipboard.writeText("pnpm ingest:daily");
-              toast.success("Copied: pnpm ingest:daily");
-            },
-          }}
+          title="Trending products are updating"
+          description="We're refreshing trending products for your region and category. Check back shortly — new picks appear throughout the day."
         />
       ) : null}
 
-      {activeData && !isLoading && !discoverNeedsIngest ? (
+      {activeData && !isInitialLoading && !discoverNeedsIngest ? (
         <>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="font-display text-lg font-semibold sm:text-xl">
-              {displayResults.length} of {totalCount} product{totalCount !== 1 ? "s" : ""}
-            </h2>
+            <div className="space-y-0.5">
+              <h2 className="font-display text-lg font-semibold sm:text-xl">
+                {totalCount === 0
+                  ? "No products"
+                  : `Showing ${showingStart}–${showingEnd} of ${totalCount} product${totalCount !== 1 ? "s" : ""}`}
+              </h2>
+              {totalPages > 1 ? (
+                <p className="text-xs text-muted-foreground">
+                  Page {currentPage} of {totalPages}
+                </p>
+              ) : null}
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <Select
                 value={String(pageSize)}
@@ -510,7 +537,7 @@ export default function ProductSearch() {
                   creditsUsed={activeData.creditsUsed}
                 />
               ) : null}
-              {activeData.sources.length > 0
+              {activeTab === "search" && activeData.sources.length > 0
                 ? activeData.sources.map((source) => (
                     <Badge key={source} variant="outline" className="text-[10px] capitalize">
                       {source.replace("_", " ")}
@@ -521,7 +548,11 @@ export default function ProductSearch() {
           </div>
 
           {displayResults.length > 0 ? (
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+            <div
+              className={`grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 ${
+                isPageLoading ? "pointer-events-none opacity-60" : ""
+              }`}
+            >
               {displayResults.map((product) => (
                 <ProductCard
                   key={`${product.platform}-${product.id}`}
@@ -533,6 +564,8 @@ export default function ProductSearch() {
                   pipelinePending={addToPipeline.isPending}
                   showTrendBadge={activeTab === "discover"}
                   showRankReason
+                  showDataFreshness={activeTab === "search"}
+                  showSourceMeta={activeTab === "search"}
                 />
               ))}
             </div>
@@ -571,28 +604,22 @@ export default function ProductSearch() {
             </div>
           )}
 
-          {hasMore ? (
-            <div className="flex justify-center pt-2">
-              <Button
-                type="button"
-                variant="outline"
-                disabled={isLoadingMore}
-                onClick={() => setCursor(activeData.nextCursor ?? cursor + pageSize)}
-              >
-                {isLoadingMore ? (
-                  <>
-                    <Spinner className="w-4 h-4" />
-                    Loading...
-                  </>
-                ) : (
-                  "Load more"
-                )}
-              </Button>
+          {isPageLoading ? (
+            <div className="flex items-center justify-center gap-2 py-2 text-sm text-muted-foreground">
+              <Spinner className="h-4 w-4" />
+              Loading page…
             </div>
           ) : null}
+
+          <ResultsPagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={handlePageChange}
+            disabled={isPageLoading}
+          />
         </>
       ) : null}
-    </>
+    </div>
   );
 
   return (
@@ -601,8 +628,6 @@ export default function ProductSearch() {
         title="Product Search"
         description="Discover trending products and search connected marketplaces — cached by default, live on demand."
       />
-
-      <MarketplaceCoverageBar />
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "discover" | "search")}>
         <TabsList>
@@ -617,7 +642,7 @@ export default function ProductSearch() {
         </TabsList>
 
         <TabsContent value="discover" className="mt-6">
-          <div className="flex min-h-[calc(100vh-14rem)] flex-col overflow-hidden rounded-xl border border-border bg-card/30">
+          <div className="overflow-hidden rounded-xl border border-border bg-card/30">
             <DiscoverToolbar
               tree={categoryTreeQuery.data?.tree ?? []}
               loading={categoryTreeQuery.isLoading}
@@ -643,16 +668,9 @@ export default function ProductSearch() {
               }
               onOpenFilters={() => setFiltersOpen(true)}
             />
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-5">
+            <div className="space-y-4 p-4 sm:p-5">
               {trendingQuery.data && !trendingQuery.isFetching ? (
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-                  <span>Trending · {trendWindowLabel}</span>
-                  <DataFreshnessBadge
-                    dataMode={trendingQuery.data.dataMode ?? "cached"}
-                    cachedAt={trendingQuery.data.cachedAt}
-                    stale={trendingQuery.data.stale}
-                  />
-                </div>
+                <p className="text-xs text-muted-foreground">Trending · {trendWindowLabel}</p>
               ) : null}
               {resultsPanel}
             </div>

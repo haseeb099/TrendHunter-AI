@@ -72,7 +72,7 @@ describe("ProductDeltaPanel", () => {
     render(<ProductDeltaPanel product={product} />);
 
     expect(
-      screen.getByText(/No snapshot diff yet — available after the next daily ingest/)
+      screen.getByText(/No snapshot diff yet — check back after the next data refresh/)
     ).toBeInTheDocument();
   });
 });

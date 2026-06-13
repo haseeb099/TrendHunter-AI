@@ -5,7 +5,6 @@ import { KeywordExplorer } from "@/components/intelligence/KeywordExplorer";
 import { TrendPulsePanel } from "@/components/intelligence/TrendPulsePanel";
 import { MarketDigestCard } from "@/components/intelligence/MarketDigestCard";
 import { IntelligenceVerdict } from "@/components/intelligence/IntelligenceVerdict";
-import { DataCoverageBanner } from "@/components/intelligence/DataCoverageBanner";
 import { TrendWindowSelector } from "@/components/intelligence/TrendWindowSelector";
 import { useTrendWindow } from "@/_core/hooks/useTrendWindow";
 import { trpc } from "@/lib/trpc";
@@ -21,7 +20,6 @@ export default function TrendPulsePage() {
   const [activeKeyword, setActiveKeyword] = useState("");
   const { window: timeframe, setWindow: setTimeframe } = useTrendWindow();
 
-  const configQuery = trpc.system.getConfig.useQuery();
   const listQuery = trpc.intelligence.listTrendKeywords.useQuery({ region });
   const intelQuery = trpc.intelligence.getProductIntel.useQuery(
     { keyword: activeKeyword, region, timeframe },
@@ -39,8 +37,6 @@ export default function TrendPulsePage() {
     if (reg) setRegion(reg as RegionCode);
   }, [location]);
 
-  const serpConfigured = configQuery.data?.dataPlatform?.serpConfigured ?? false;
-
   return (
     <div className="space-y-8">
       <PageHeader
@@ -53,17 +49,6 @@ export default function TrendPulsePage() {
           </span>
         }
       />
-
-      <DataCoverageBanner pageId="trend-pulse" />
-
-      {!serpConfigured ? (
-        <Alert>
-          <AlertDescription>
-            Add <code className="text-xs">SERPAPI_KEY</code> or JustSerp credentials to enable live
-            Google Trends scans. Cached data appears after daily ingest.
-          </AlertDescription>
-        </Alert>
-      ) : null}
 
       <div className="rounded-xl border border-border bg-muted/15 p-4 text-sm text-muted-foreground">
         <p>
@@ -146,7 +131,7 @@ export default function TrendPulsePage() {
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
-              No trend data cached for this region. Run daily ingest or analyze any keyword above.
+              No trend data yet for this region. Search a keyword above or refresh live (1 credit) for the latest results.
             </p>
           )}
         </section>

@@ -1,6 +1,7 @@
 import type { ProductSearchResult } from "@shared/searchTypes";
 
 import { TrendScoreExplain } from "@/components/intelligence/TrendScoreExplain";
+import { ConfidenceBadge } from "@/components/intelligence/ConfidenceBadge";
 
 import { Badge } from "@/components/ui/badge";
 
@@ -17,8 +18,6 @@ type Props = { product: ProductSearchResult };
 export function ProductWhyPanel({ product }: Props) {
 
   const explanation = product.rankingExplanation;
-
-  const lowConfidence = explanation?.confidence === "low";
 
   const staleFeatures = explanation?.staleFeatures;
 
@@ -38,14 +37,8 @@ export function ProductWhyPanel({ product }: Props) {
 
         <h4 className="font-semibold text-sm">Why this product?</h4>
 
-        {lowConfidence ? (
-
-          <Badge variant="outline" className="text-[10px] gap-1">
-
-            Low confidence
-
-          </Badge>
-
+        {explanation?.confidence ? (
+          <ConfidenceBadge confidence={explanation.confidence} />
         ) : null}
 
         {staleFeatures ? (
@@ -84,6 +77,12 @@ export function ProductWhyPanel({ product }: Props) {
 
       ) : null}
 
+      {explanation?.signalsMissing?.length ? (
+        <p className="text-xs text-muted-foreground">
+          Missing signals: {explanation.signalsMissing.join(", ")}
+        </p>
+      ) : null}
+
       {product.trendScoreInputs ? (
 
         <TrendScoreExplain inputs={product.trendScoreInputs} score={product.trendScore ?? 0} />
@@ -119,4 +118,3 @@ export function ProductWhyPanel({ product }: Props) {
   );
 
 }
-

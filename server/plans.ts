@@ -1,3 +1,7 @@
+/**
+ * Plan resolution, trial expiry, and subscription gating.
+ * Implemented and updated by Cursor — June 13, 2026 (Notion B-02, B-06).
+ */
 import type { User } from "../drizzle/schema";
 import {
   PLAN_DEFINITIONS,
@@ -82,7 +86,8 @@ export async function lazyExpireTrialIfNeeded(user: User): Promise<void> {
 
   trialExpiryInFlight.add(user.id);
   try {
-    await updateUserSubscription(user.id, { planStatus: "expired" });
+    await updateUserSubscription(user.id, { planId: "starter", planStatus: "expired" });
+    user.planId = "starter";
     user.planStatus = "expired";
   } catch (err) {
     console.warn("[Plans] lazy trial expiry failed:", err);
@@ -289,6 +294,23 @@ export async function assertFeatureAccess(user: User, feature: FeatureId): Promi
   }
 }
 
+/** Trend/ad intel readable from Discover or Competitor Intelligence pages. */
+export async function assertIntelReadAccess(user: User): Promise<void> {
+  if (isAdmin(user)) return;
+
+  const catalog = await getPlanCatalog();
+  const resolved = resolveEffectivePlan(user);
+  const planId = resolved.effectivePlanId;
+  if (planHasFeature(planId, "discover", catalog) || planHasFeature(planId, "competitors", catalog)) {
+    return;
+  }
+
+  throw new TRPCError({
+    code: "FORBIDDEN",
+    message: `${PLAN_FORBIDDEN_ERR_MSG}: Upgrade to Pro or higher for intelligence data.`,
+  });
+}
+
 export async function assertSearchQuota(user: User): Promise<void> {
   if (isAdmin(user)) return;
   const sub = await buildSubscriptionInfo(user);
@@ -392,7 +414,7 @@ export async function expireStaleTrials(): Promise<void> {
   const now = new Date();
   await db
     .update(users)
-    .set({ planStatus: "expired" })
+    .set({ planId: "starter", planStatus: "expired" })
     .where(
       and(
         eq(users.planId, "trial"),

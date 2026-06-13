@@ -7,7 +7,6 @@ import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { DataCoverageBanner } from "@/components/intelligence/DataCoverageBanner";
 import { DataFreshnessBadge } from "@/components/intelligence/DataFreshnessBadge";
 import { formatProductPrice } from "@shared/searchTypes";
 import type { RegionCode } from "@shared/searchTypes";
@@ -19,7 +18,6 @@ export default function TikTokShopPage() {
   const [keyword, setKeyword] = useState("trending");
   const [activeKeyword, setActiveKeyword] = useState("trending");
 
-  const configQuery = trpc.system.getConfig.useQuery();
   const trendsQuery = trpc.intelligence.getTikTokShopTrends.useQuery(
     { keyword: activeKeyword, region, limit: 24 },
     { enabled: Boolean(activeKeyword.trim()) }
@@ -36,7 +34,9 @@ export default function TikTokShopPage() {
     if (reg) setRegion(reg as RegionCode);
   }, [location]);
 
-  const tiktokConfigured = trendsQuery.data?.configured ?? false;
+  const runSearch = () => {
+    setActiveKeyword(keyword.trim() || "trending");
+  };
 
   return (
     <div className="space-y-8">
@@ -51,17 +51,6 @@ export default function TikTokShopPage() {
         }
       />
 
-      <DataCoverageBanner pageId="tiktok-shop" />
-
-      {!tiktokConfigured ? (
-        <Alert>
-          <AlertDescription>
-            Add <code className="text-xs">TIKTOK_SHOP_API_KEY</code> or official TikTok Shop
-            credentials to enable live product scans.
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
       <div className="rounded-xl border border-border bg-muted/15 p-4 text-sm text-muted-foreground">
         <p>
           <strong className="text-foreground">How to read this:</strong> Rising TikTok Shop
@@ -73,11 +62,9 @@ export default function TikTokShopPage() {
       <KeywordExplorer
         keyword={keyword}
         region={region}
-        onKeywordChange={(kw) => {
-          setKeyword(kw);
-          setActiveKeyword(kw);
-        }}
+        onKeywordChange={setKeyword}
         onRegionChange={setRegion}
+        onSearch={runSearch}
       />
 
       {trendsQuery.isError ? (
@@ -129,11 +116,7 @@ export default function TikTokShopPage() {
         </div>
       )}
 
-      {configQuery.data?.dataPlatform ? (
-        <p className="text-[11px] text-muted-foreground">
-          TikTok Shop search · Region {region}
-        </p>
-      ) : null}
+      <p className="text-[11px] text-muted-foreground">TikTok Shop search · Region {region}</p>
     </div>
   );
 }

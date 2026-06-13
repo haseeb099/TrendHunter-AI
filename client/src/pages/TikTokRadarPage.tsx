@@ -8,8 +8,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { DataCoverageBanner } from "@/components/intelligence/DataCoverageBanner";
 import type { RegionCode } from "@shared/searchTypes";
+import type { MarketDigestItem } from "@shared/intelligenceTypes";
 import { Video } from "lucide-react";
 
 export default function TikTokRadarPage() {
@@ -18,7 +18,6 @@ export default function TikTokRadarPage() {
   const [keyword, setKeyword] = useState("");
   const [activeKeyword, setActiveKeyword] = useState("");
 
-  const configQuery = trpc.system.getConfig.useQuery();
   const listQuery = trpc.intelligence.listTikTokKeywords.useQuery({ region });
 
   useEffect(() => {
@@ -32,8 +31,6 @@ export default function TikTokRadarPage() {
     if (reg) setRegion(reg as RegionCode);
   }, [location]);
 
-  const tiktokConfigured = configQuery.data?.dataPlatform?.tiktokAdsConfigured ?? false;
-
   return (
     <div className="space-y-8">
       <PageHeader
@@ -46,17 +43,6 @@ export default function TikTokRadarPage() {
           </span>
         }
       />
-
-      <DataCoverageBanner pageId="tiktok-radar" />
-
-      {!tiktokConfigured ? (
-        <Alert>
-          <AlertDescription>
-            Add <code className="text-xs">SEARCHAPI_KEY</code> (or TikTok Shop API) to enable live
-            TikTok ad scans. Cached data appears after daily ingest.
-          </AlertDescription>
-        </Alert>
-      ) : null}
 
       <div className="rounded-xl border border-border bg-muted/15 p-4 text-sm text-muted-foreground">
         <p>
@@ -127,8 +113,7 @@ export default function TikTokRadarPage() {
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
-              No TikTok ad snapshots cached yet. Configure SearchAPI and run ingest, or scan live (2
-              credits).
+              No TikTok ad data yet for this region. Search a keyword above or scan live (2 credits) for the latest results.
             </p>
           )}
         </section>
@@ -142,11 +127,7 @@ function TikTokKeywordCard({
   onSelect,
   selected,
 }: {
-  item: {
-    keyword: string;
-    activeAdCount: number;
-    advertiserCount: number;
-  };
+  item: Pick<MarketDigestItem, "keyword" | "activeAdCount" | "advertiserCount" | "pending">;
   onSelect: (keyword: string) => void;
   selected?: boolean;
 }) {
@@ -167,12 +148,20 @@ function TikTokKeywordCard({
     >
       <p className="font-medium capitalize text-sm truncate">{item.keyword}</p>
       <div className="flex flex-wrap gap-1.5 mt-2">
-        <Badge variant="secondary" className="text-[10px]">
-          {item.activeAdCount} ads
-        </Badge>
-        <Badge variant="outline" className="text-[10px]">
-          {item.advertiserCount} advertisers
-        </Badge>
+        {item.pending ? (
+          <Badge variant="outline" className="text-[10px]">
+            Loading…
+          </Badge>
+        ) : (
+          <>
+            <Badge variant="secondary" className="text-[10px]">
+              {item.activeAdCount ?? 0} ads
+            </Badge>
+            <Badge variant="outline" className="text-[10px]">
+              {item.advertiserCount ?? 0} advertisers
+            </Badge>
+          </>
+        )}
       </div>
     </Card>
   );

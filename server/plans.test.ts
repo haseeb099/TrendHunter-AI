@@ -103,10 +103,36 @@ describe("resolveEffectivePlan", () => {
     );
   });
 
-  it("expired paid plan is inactive", () => {
-    const user = mockUser({ planId: "pro", planStatus: "expired" });
+  it("expired trial is blocked by assertSubscriptionActive after lazy expire", () => {
+    const past = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const user = mockUser({
+      planId: "trial",
+      planStatus: "active",
+      trialEndsAt: past,
+    });
     const resolved = resolveEffectivePlan(user);
     expect(resolved.isActive).toBe(false);
+    expect(() => assertSubscriptionActive(user)).toThrow(TRPCError);
+  });
+
+  it("past_due subscription is inactive", () => {
+    const user = mockUser({ planId: "pro", planStatus: "expired" });
+    expect(() => assertSubscriptionActive(user)).toThrow(TRPCError);
+  });
+
+  it("cancelled subscription is inactive", () => {
+    const user = mockUser({ planId: "pro", planStatus: "cancelled" });
+    expect(() => assertSubscriptionActive(user)).toThrow(TRPCError);
+  });
+
+  it("paused account is blocked", () => {
+    const user = mockUser({ accountStatus: "paused" });
+    expect(() => assertAccountUsable(user)).toThrow(TRPCError);
+  });
+
+  it("deactivated account is blocked", () => {
+    const user = mockUser({ accountStatus: "deactivated" });
+    expect(() => assertAccountUsable(user)).toThrow(TRPCError);
   });
 });
 

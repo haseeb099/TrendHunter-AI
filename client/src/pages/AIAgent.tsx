@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -8,21 +8,30 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { PageHeader } from "@/components/PageHeader";
 import { AiFeatureGate } from "@/components/workspace/AiFeatureGate";
-import { MessageSquare, Send, Plus, Trash2, Bot } from "lucide-react";
+import {
+  MessageSquare,
+  Send,
+  Plus,
+  Trash2,
+  Bot,
+  User,
+  Shield,
+  Sparkles,
+  Loader2,
+} from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Info } from "lucide-react";
-import { DataFreshnessBadge } from "@/components/intelligence/DataFreshnessBadge";
+import { AGENT_SCOPE_SUMMARY } from "@shared/agentScope";
+import { Streamdown } from "streamdown";
+import { Badge } from "@/components/ui/badge";
 
 const SUGGESTED_PROMPTS = [
   "What product categories are trending on TikTok Shop this month?",
   "How do I calculate landed cost for a $8 product shipping from China to the US?",
-  "Compare dropshipping vs holding inventory for a new store",
+  "How should I vet a new AliExpress supplier before ordering samples?",
   "What margins should I target for impulse-buy products under $30?",
 ];
 
@@ -31,17 +40,16 @@ export default function AIAgent() {
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<Array<{ role: string; content: string }>>([]);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const stickToBottomRef = useRef(true);
+  const lastMessageCountRef = useRef(0);
 
   const aiConfig = trpc.system.getConfig.useQuery();
   const sessionsQuery = trpc.agent.getChatSessions.useQuery();
   const createSessionMutation = trpc.agent.createChatSession.useMutation({
-    onSuccess: async (session) => {
-      if (session) {
-        setSessionId(session.id);
-        setMessages([]);
-        await utils.agent.getChatSessions.invalidate();
-      }
+    onSuccess: async () => {
+      await utils.agent.getChatSessions.invalidate();
     },
   });
   const deleteSessionMutation = trpc.agent.deleteChatSession.useMutation({
@@ -58,6 +66,9 @@ export default function AIAgent() {
   );
   const aiDisabled = Boolean(aiConfig.data && !aiConfig.data.ai.configured);
 
+  const activeSessionTitle =
+    sessionsQuery.data?.find((s) => s.id === sessionId)?.title ?? "New conversation";
+
   useEffect(() => {
     if (getMessagesQuery.data) {
       setMessages(getMessagesQuery.data);
@@ -65,12 +76,59 @@ export default function AIAgent() {
   }, [getMessagesQuery.data]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    const viewport = messagesScrollRef.current;
+    if (!viewport) return;
+
+    const onScroll = () => {
+      const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+      stickToBottomRef.current = distanceFromBottom < 120;
+    };
+
+    viewport.addEventListener("scroll", onScroll, { passive: true });
+    return () => viewport.removeEventListener("scroll", onScroll);
+  }, [sessionId]);
+
+  useEffect(() => {
+    const viewport = messagesScrollRef.current;
+    if (!viewport) return;
+
+    const messageCount = messages.length + (sendMessageMutation.isPending ? 1 : 0);
+    const grew = messageCount > lastMessageCountRef.current;
+    lastMessageCountRef.current = messageCount;
+
+    if (grew && stickToBottomRef.current) {
+      requestAnimationFrame(() => {
+        viewport.scrollTop = viewport.scrollHeight;
+      });
+    }
+  }, [messages, sendMessageMutation.isPending]);
+
+  const ensureSession = async (): Promise<number | null> => {
+    if (sessionId) return sessionId;
+    try {
+      const session = await createSessionMutation.mutateAsync({});
+      if (session) {
+        setSessionId(session.id);
+        setMessages([]);
+        stickToBottomRef.current = true;
+        return session.id;
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to start chat");
+    }
+    return null;
+  };
 
   const handleNewChat = async () => {
     try {
-      await createSessionMutation.mutateAsync({});
+      const session = await createSessionMutation.mutateAsync({});
+      if (session) {
+        setSessionId(session.id);
+        setMessages([]);
+        stickToBottomRef.current = true;
+        lastMessageCountRef.current = 0;
+        textareaRef.current?.focus();
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to start chat");
     }
@@ -78,6 +136,9 @@ export default function AIAgent() {
 
   const handleSelectSession = (id: number) => {
     setSessionId(id);
+    setMessage("");
+    stickToBottomRef.current = true;
+    lastMessageCountRef.current = 0;
   };
 
   const handleDeleteSession = async (id: number) => {
@@ -88,18 +149,21 @@ export default function AIAgent() {
     }
   };
 
-  const handleSendMessage = async (e: React.FormEvent, override?: string) => {
-    e.preventDefault();
-    const content = (override ?? message).trim();
-    if (!content || !sessionId || aiDisabled) return;
+  const sendContent = async (content: string) => {
+    const trimmed = content.trim();
+    if (!trimmed || aiDisabled) return;
+
+    const activeId = await ensureSession();
+    if (!activeId) return;
 
     setMessage("");
-    setMessages((prev) => [...prev, { role: "user", content }]);
+    stickToBottomRef.current = true;
+    setMessages((prev) => [...prev, { role: "user", content: trimmed }]);
 
     try {
       const response = await sendMessageMutation.mutateAsync({
-        sessionId,
-        content,
+        sessionId: activeId,
+        content: trimmed,
       });
       if (response) {
         setMessages((prev) => [...prev, { role: "assistant", content: response.message }]);
@@ -113,254 +177,279 @@ export default function AIAgent() {
     }
   };
 
-  const SessionMobilePicker = () => {
-    if (!sessionsQuery.data?.length) return null;
-    return (
-      <div className="lg:hidden flex gap-2 items-center">
-        <Select
-          value={sessionId ? String(sessionId) : undefined}
-          onValueChange={(v) => handleSelectSession(Number(v))}
-        >
-          <SelectTrigger className="flex-1 h-9 input-elegant">
-            <SelectValue placeholder="Past conversations" />
-          </SelectTrigger>
-          <SelectContent>
-            {sessionsQuery.data.map((s) => (
-              <SelectItem key={s.id} value={String(s.id)}>
-                {s.title}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {sessionId ? (
-          <Button
-            size="icon"
-            variant="outline"
-            className="shrink-0"
-            aria-label="Delete current chat"
-            onClick={() => handleDeleteSession(sessionId)}
-          >
-            <Trash2 className="w-4 h-4" />
-          </Button>
-        ) : null}
-      </div>
-    );
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await sendContent(message);
   };
 
-  const SessionSidebar = ({ className }: { className?: string }) => (
-    <aside className={cn("card-elevated flex flex-col overflow-hidden", className)}>
-      <div className="border-b border-border p-3">
-        <Button
-          onClick={handleNewChat}
-          disabled={createSessionMutation.isPending || aiDisabled}
-          className="w-full"
-          size="sm"
-        >
-          {createSessionMutation.isPending ? <Spinner className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-          New chat
-        </Button>
-      </div>
-      <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
-        {sessionsQuery.data?.map((s) => (
-          <div key={s.id} className="flex items-center gap-0.5">
-            <button
-              type="button"
-              onClick={() => handleSelectSession(s.id)}
-              className={cn(
-                "flex-1 text-left text-sm px-3 py-2 rounded-lg truncate transition-colors",
-                sessionId === s.id
-                  ? "bg-primary/10 text-primary font-medium"
-                  : "hover:bg-muted/60 text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {s.title}
-            </button>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-8 w-8 shrink-0"
-              aria-label={`Delete chat: ${s.title}`}
-              onClick={() => handleDeleteSession(s.id)}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </Button>
-          </div>
-        ))}
-        {!sessionsQuery.data?.length ? (
-          <p className="text-xs text-muted-foreground px-3 py-4 text-center">No conversations yet</p>
-        ) : null}
-      </div>
-    </aside>
-  );
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void sendContent(message);
+    }
+  };
 
-  if (!sessionId) {
-    return (
-      <div className="space-y-8">
-        <PageHeader
-          title="AI Research Agent"
-          description="Your product research advisor — sourcing, margins, trends, and go-to-market strategy."
-        />
-        <div className="flex justify-end -mt-4">
-          <DataFreshnessBadge synthetic />
-        </div>
-
-        <AiFeatureGate disabled={aiDisabled} feature="AI research chat" />
-
-        <Alert className="border-border bg-muted/30">
-          <Info className="h-4 w-4" />
-          <AlertDescription className="text-xs leading-relaxed">
-            This agent uses general AI knowledge only — it is not connected to live marketplace feeds,
-            your watchlist, or real-time trend data. Verify sourcing and demand in Discover and Intel
-            Center before acting on recommendations.
-          </AlertDescription>
-        </Alert>
-
-        <SessionMobilePicker />
-        <div className="grid lg:grid-cols-[220px_1fr] gap-4 min-h-[420px]">
-          <SessionSidebar className="hidden lg:flex" />
-          <div className="product-panel-empty flex-1">
-            <div className="product-panel-empty-icon">
-              <MessageSquare className="w-5 h-5 text-primary" />
-            </div>
-            <p className="font-medium text-sm">Start a conversation</p>
-            <p className="text-sm text-muted-foreground max-w-md mx-auto mb-6">
-              Ask about niches, supplier strategy, ad angles, or how to interpret validation scores.
-            </p>
-            <Button onClick={handleNewChat} disabled={createSessionMutation.isPending || aiDisabled}>
-              {createSessionMutation.isPending ? <Spinner className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-              Start chat
-            </Button>
-            <div className="mt-8 flex flex-wrap justify-center gap-2 max-w-lg mx-auto">
-              {SUGGESTED_PROMPTS.map((prompt) => (
-                <button
-                  key={prompt}
-                  type="button"
-                  disabled={createSessionMutation.isPending || aiDisabled}
-                  onClick={async () => {
-                    try {
-                      const session = await createSessionMutation.mutateAsync({});
-                      if (session) {
-                        setSessionId(session.id);
-                        setMessages([]);
-                        await utils.agent.getChatSessions.invalidate();
-                      }
-                    } catch (err) {
-                      toast.error(err instanceof Error ? err.message : "Failed to start chat");
-                    }
-                  }}
-                  className="text-xs rounded-full border border-border px-3 py-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors text-left"
-                >
-                  {prompt}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const isBusy = createSessionMutation.isPending || sendMessageMutation.isPending;
 
   return (
-    <div className="flex flex-col gap-4 min-h-[calc(100svh-12rem)]">
-      <div className="flex items-start justify-between gap-4">
-        <PageHeader
-          title="AI Research Agent"
-          description="Ask follow-ups, compare options, and refine your product strategy."
-          className="flex-1 min-w-0"
-        />
-        <div className="flex flex-col items-end gap-2 shrink-0">
-          <DataFreshnessBadge synthetic />
-          <Button variant="outline" size="sm" onClick={handleNewChat} disabled={aiDisabled}>
-            <Plus className="w-4 h-4" />
-            New chat
-          </Button>
+    <div className="agent-chat-root bg-background">
+      {aiDisabled ? (
+        <div className="shrink-0 border-b border-border px-4 py-2">
+          <AiFeatureGate disabled={aiDisabled} feature="AI research chat" />
         </div>
-      </div>
+      ) : null}
 
-      <AiFeatureGate disabled={aiDisabled} feature="AI research chat" />
-
-      <Alert className="border-border bg-muted/30">
-        <Info className="h-4 w-4" />
-        <AlertDescription className="text-xs leading-relaxed">
-          Responses are AI-generated and not wired to live feeds. Cross-check trends, ads, and supplier
-          data in your workspace.
-        </AlertDescription>
-      </Alert>
-
-      <SessionMobilePicker />
-
-      <div className="grid lg:grid-cols-[220px_1fr] gap-4 flex-1 min-h-0">
-        <SessionSidebar className="hidden lg:flex max-h-[calc(100svh-14rem)]" />
-
-        <div className="card-elevated flex flex-col overflow-hidden min-h-[480px]">
-          <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4">
-            {messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-center py-12">
-                <Bot className="w-10 h-10 text-muted-foreground/50 mb-4" />
-                <p className="text-sm text-muted-foreground mb-6 max-w-sm">
-                  Try one of these prompts or ask your own question
-                </p>
-                <div className="flex flex-wrap justify-center gap-2 max-w-md">
-                  {SUGGESTED_PROMPTS.map((prompt) => (
-                    <button
-                      key={prompt}
-                      type="button"
-                      onClick={(e) => handleSendMessage(e, prompt)}
-                      disabled={sendMessageMutation.isPending || aiDisabled}
-                      className="text-xs rounded-full border border-border px-3 py-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors text-left"
-                    >
-                      {prompt}
-                    </button>
-                  ))}
-                </div>
+      <div className="agent-chat-shell min-h-0 flex-1">
+        {/* Conversations sidebar */}
+        <aside className="agent-chat-sidebar hidden lg:grid">
+          <div className="border-b border-border px-4 py-4 space-y-3 bg-muted/20">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
+                <MessageSquare className="h-4 w-4 text-primary" />
               </div>
-            ) : (
-              messages.map((msg, idx) => (
-                <div
-                  key={idx}
-                  className={cn("flex", msg.role === "user" ? "justify-end" : "justify-start")}
-                >
-                  <div
-                    className={cn(
-                      "max-w-[85%] sm:max-w-md",
-                      msg.role === "user" ? "chat-bubble-user" : "chat-bubble-assistant"
-                    )}
-                  >
-                    <p className="whitespace-pre-wrap">{msg.content}</p>
-                  </div>
-                </div>
-              ))
-            )}
+              <div className="min-w-0">
+                <p className="text-sm font-semibold leading-none">Conversations</p>
+                <p className="text-[11px] text-muted-foreground mt-1">Product research chat</p>
+              </div>
+            </div>
+            <Button
+              onClick={() => void handleNewChat()}
+              disabled={isBusy || aiDisabled}
+              className="w-full gap-2"
+              size="sm"
+            >
+              {createSessionMutation.isPending ? (
+                <Spinner className="w-4 h-4" />
+              ) : (
+                <Plus className="w-4 h-4" />
+              )}
+              New chat
+            </Button>
+          </div>
 
-            {sendMessageMutation.isPending ? (
-              <div className="flex justify-start">
-                <div className="chat-bubble-assistant flex items-center gap-2">
-                  <Spinner className="w-4 h-4" />
-                  <span className="text-muted-foreground text-xs">Thinking…</span>
-                </div>
+          <div className="agent-chat-sessions p-2 space-y-0.5">
+            {sessionsQuery.data?.map((s) => (
+              <div
+                key={s.id}
+                className={cn(
+                  "group flex items-center gap-0.5 rounded-lg",
+                  sessionId === s.id ? "bg-primary/10 ring-1 ring-primary/20" : "hover:bg-muted/60"
+                )}
+              >
+                <button
+                  type="button"
+                  onClick={() => handleSelectSession(s.id)}
+                  className={cn(
+                    "flex-1 min-w-0 text-left text-sm px-3 py-2.5 flex items-center gap-2 rounded-lg",
+                    sessionId === s.id ? "text-primary font-medium" : "text-muted-foreground"
+                  )}
+                >
+                  <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">{s.title}</span>
+                </button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8 shrink-0 mr-0.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-muted-foreground hover:text-destructive"
+                  aria-label={`Delete chat: ${s.title}`}
+                  onClick={() => void handleDeleteSession(s.id)}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            ))}
+            {!sessionsQuery.data?.length ? (
+              <p className="px-3 py-10 text-center text-xs text-muted-foreground leading-relaxed">
+                No chats yet. Type below or click New chat.
+              </p>
+            ) : null}
+          </div>
+
+          <div className="border-t border-border px-4 py-3 bg-muted/20">
+            <div className="flex items-start gap-2">
+              <Shield className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
+              <p className="text-[10px] leading-relaxed text-muted-foreground">{AGENT_SCOPE_SUMMARY}</p>
+            </div>
+          </div>
+        </aside>
+
+        {/* Main chat */}
+        <div className="agent-chat-main min-w-0 bg-background">
+          <div className="border-b border-border bg-card/30">
+            <div className="flex items-center gap-3 px-4 py-3 sm:px-5">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                <Bot className="h-4 w-4 text-primary" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold truncate">{activeSessionTitle}</p>
+                <p className="text-[11px] text-muted-foreground truncate hidden sm:block">
+                  E-commerce research · suppliers · competitors · validation · profit
+                </p>
+              </div>
+              <Badge
+                variant="outline"
+                className="hidden sm:inline-flex gap-1 font-normal text-[10px] border-primary/20 bg-primary/5 shrink-0"
+              >
+                <Shield className="w-3 h-3 text-primary" />
+                Scoped
+              </Badge>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 shrink-0 lg:hidden"
+                onClick={() => void handleNewChat()}
+                disabled={isBusy || aiDisabled}
+              >
+                <Plus className="w-4 h-4" />
+                New
+              </Button>
+            </div>
+
+            {sessionsQuery.data?.length ? (
+              <div className="lg:hidden flex gap-2 items-center border-t border-border/60 px-4 py-2.5 bg-muted/10">
+                <Select
+                  value={sessionId ? String(sessionId) : undefined}
+                  onValueChange={(v) => handleSelectSession(Number(v))}
+                >
+                  <SelectTrigger className="flex-1 h-9">
+                    <SelectValue placeholder="Select conversation" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sessionsQuery.data.map((s) => (
+                      <SelectItem key={s.id} value={String(s.id)}>
+                        {s.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {sessionId ? (
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    className="shrink-0"
+                    aria-label="Delete current chat"
+                    onClick={() => void handleDeleteSession(sessionId)}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                ) : null}
               </div>
             ) : null}
+          </div>
 
-            <div ref={messagesEndRef} />
+          <div ref={messagesScrollRef} className="agent-chat-messages">
+            <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 py-6 space-y-6">
+              {messages.length === 0 ? (
+                <div className="flex flex-col items-center text-center py-10">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 mb-5 ring-1 ring-primary/15">
+                    <Sparkles className="w-8 h-8 text-primary" />
+                  </div>
+                  <h2 className="font-display text-xl font-semibold text-foreground">
+                    TrendHunter Research Agent
+                  </h2>
+                  <p className="text-sm text-muted-foreground max-w-md mt-2 mb-8 leading-relaxed">
+                    Ask about products, suppliers, competitors, validation, or profit math. Type in the
+                    box below to start.
+                  </p>
+                  <div className="grid sm:grid-cols-2 gap-2.5 w-full max-w-2xl">
+                    {SUGGESTED_PROMPTS.map((prompt) => (
+                      <button
+                        key={prompt}
+                        type="button"
+                        disabled={isBusy || aiDisabled}
+                        onClick={() => void sendContent(prompt)}
+                        className="text-left text-sm rounded-xl border border-border bg-card px-4 py-3.5 text-muted-foreground hover:text-foreground hover:border-primary/30 hover:bg-primary/5 transition-colors disabled:opacity-50"
+                      >
+                        {prompt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                messages.map((msg, idx) => (
+                  <div
+                    key={idx}
+                    className={cn(
+                      "flex gap-3 items-start w-full",
+                      msg.role === "user" ? "justify-end" : "justify-start"
+                    )}
+                  >
+                    {msg.role === "assistant" ? (
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 mt-0.5">
+                        <Bot className="h-4 w-4 text-primary" />
+                      </div>
+                    ) : null}
+                    <div
+                      className={cn(
+                        "max-w-[min(100%,42rem)]",
+                        msg.role === "user" ? "chat-bubble-user" : "chat-bubble-assistant"
+                      )}
+                    >
+                      {msg.role === "assistant" ? (
+                        <div className="prose prose-sm dark:prose-invert max-w-none [&_p]:my-1.5 [&_ul]:my-1.5">
+                          <Streamdown>{msg.content}</Streamdown>
+                        </div>
+                      ) : (
+                        <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
+                      )}
+                    </div>
+                    {msg.role === "user" ? (
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-secondary mt-0.5">
+                        <User className="h-4 w-4 text-secondary-foreground" />
+                      </div>
+                    ) : null}
+                  </div>
+                ))
+              )}
+
+              {sendMessageMutation.isPending ? (
+                <div className="flex gap-3 items-start w-full pb-4">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                    <Bot className="h-4 w-4 text-primary" />
+                  </div>
+                  <div className="chat-bubble-assistant flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                    <span className="text-muted-foreground text-sm">Analyzing…</span>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
 
           <form
-            onSubmit={handleSendMessage}
-            className="border-t border-border p-4 flex gap-2 bg-muted/10"
+            onSubmit={(e) => void handleSendMessage(e)}
+            className="border-t border-border bg-card/40 px-4 py-4 sm:px-6"
           >
-            <Input
-              placeholder="Ask about products, markets, suppliers, or ads…"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              disabled={sendMessageMutation.isPending || aiDisabled}
-              className="input-elegant flex-1"
-            />
-            <Button
-              type="submit"
-              disabled={sendMessageMutation.isPending || !message.trim() || aiDisabled}
-            >
-              <Send className="w-4 h-4" />
-            </Button>
+            <div className="mx-auto w-full max-w-4xl">
+              <div className="flex gap-3 items-end rounded-2xl border border-border bg-background p-2 shadow-sm focus-within:ring-2 focus-within:ring-primary/20">
+                <Textarea
+                  ref={textareaRef}
+                  placeholder="Message TrendHunter AI — products, suppliers, competitors, validation, profit…"
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  disabled={isBusy || aiDisabled}
+                  className="flex-1 min-h-[52px] max-h-40 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 text-sm leading-relaxed"
+                  rows={2}
+                />
+                <Button
+                  type="submit"
+                  size="icon"
+                  className="h-11 w-11 shrink-0 rounded-xl"
+                  disabled={isBusy || !message.trim() || aiDisabled}
+                  aria-label="Send message"
+                >
+                  {sendMessageMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-2 px-1">
+                Enter to send · Shift+Enter for new line · {AGENT_SCOPE_SUMMARY}
+              </p>
+            </div>
           </form>
         </div>
       </div>

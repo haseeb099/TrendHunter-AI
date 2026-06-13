@@ -172,7 +172,7 @@ describe("scoreProduct", () => {
 
       const result = await scoreProduct(baseProduct(), "US", { query: "wireless earbuds" });
 
-      expect(result.trendScore).toMatchInlineSnapshot(`81`);
+      expect(result.trendScore).toMatchInlineSnapshot(`78`);
       expect(result.isTrending).toBe(true);
       expect(result.rankingExplanation?.summary).toBe(
         "Score uses estimated signals — connect live providers for higher confidence."
@@ -208,7 +208,7 @@ describe("scoreProduct", () => {
         { query: "phone case" }
       );
 
-      expect(result.trendScore).toMatchInlineSnapshot(`50`);
+      expect(result.trendScore).toMatchInlineSnapshot(`52`);
       expect(result.isTrending).toBe(false);
       expect(result.rankingExplanation?.summary).toBe(
         "Score uses estimated signals — connect live providers for higher confidence."
@@ -217,7 +217,7 @@ describe("scoreProduct", () => {
       expect(result.rankingExplanation?.confidence).toBe("medium");
     });
 
-    it("stale features — low confidence and refresh path", async () => {
+    it("stale features without live intel — low confidence, no refetch", async () => {
       vi.mocked(features.getProductFeatures).mockResolvedValue({
         id: 2,
         canonicalProductId: "prod-stale",
@@ -233,14 +233,6 @@ describe("scoreProduct", () => {
         stale: true,
       });
 
-      const { getTrendSignal } = await import("../intelligence/trends");
-      const { getAdLibrarySnapshot } = await import("../intelligence/adLibrary");
-      const { getTikTokAdsSnapshot } = await import("../intelligence/tiktokAds");
-
-      vi.mocked(getTrendSignal).mockResolvedValue({ momentumScore: 72, keyword: "desk lamp" } as never);
-      vi.mocked(getAdLibrarySnapshot).mockResolvedValue({ activeAdCount: 2 } as never);
-      vi.mocked(getTikTokAdsSnapshot).mockResolvedValue({ activeAdCount: 1 } as never);
-
       const result = await scoreProduct(
         baseProduct({
           id: "prod-stale",
@@ -248,13 +240,44 @@ describe("scoreProduct", () => {
           title: "LED Desk Lamp",
           price: 24.5,
         }),
-        "US"
+        "US",
+        { fetchLiveIntel: false }
       );
 
       expect(result.rankingExplanation?.staleFeatures).toBe(true);
       expect(result.rankingExplanation?.confidence).toBe("low");
-      expect(features.materializeProductFeatures).toHaveBeenCalled();
-      expect(result.trendScore).toMatchInlineSnapshot(`74`);
+      expect(features.materializeProductFeatures).not.toHaveBeenCalled();
+      expect(result.rankingExplanation?.partialScore).toBe(true);
+    });
+
+    it("no feature rows — partial score with missing signals", async () => {
+      vi.mocked(features.getProductFeatures).mockResolvedValue(null);
+
+      const result = await scoreProduct(baseProduct(), "US", {
+        fetchLiveIntel: false,
+      });
+
+      expect(result.rankingExplanation?.signalsMissing?.length).toBeGreaterThan(0);
+      expect(result.rankingExplanation?.partialScore).toBe(true);
+    });
+
+    it("forceTrending floor applies at 65", async () => {
+      mockFreshFeatures("prod-floor", "US", {
+        momentumScore: 40,
+        adSaturationScore: 40,
+        tiktokPressureScore: 40,
+        supplierScore: 40,
+        competitionScore: 40,
+        freshnessScore: 40,
+      });
+
+      const result = await scoreProduct(
+        baseProduct({ id: "prod-floor", canonicalProductId: "prod-floor", trendScore: 50 }),
+        "US",
+        { forceTrending: true, allowHeuristicScores: true, fetchLiveIntel: false }
+      );
+
+      expect(result.trendScore).toBeGreaterThanOrEqual(65);
     });
   });
 });

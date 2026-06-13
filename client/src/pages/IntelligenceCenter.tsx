@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,9 +22,8 @@ import { trpc } from "@/lib/trpc";
 import { Spinner } from "@/components/ui/spinner";
 import { getDashboardPath } from "@/config/dashboardNav";
 import type { ProductSearchResult, RegionCode } from "@shared/searchTypes";
+import { INTEL_SEED_KEYWORDS } from "@shared/intelSeedKeywords";
 import { IntelAlertsPanel } from "@/components/intelligence/IntelAlertsPanel";
-import { ProviderStatusBar } from "@/components/intelligence/ProviderStatusBar";
-import { DataCoverageBanner } from "@/components/intelligence/DataCoverageBanner";
 import { ArrowRight, Info, LineChart, Radar, ShoppingBag, Sparkles, Video } from "lucide-react";
 import { Link } from "wouter";
 
@@ -38,12 +37,57 @@ export default function IntelligenceCenter() {
   const [drawerTab, setDrawerTab] = useState<ProductDrawerTab>("overview");
 
   const categoriesQuery = trpc.trending.getCategories.useQuery({ region });
-  const digestQuery = trpc.intelligence.getMarketDigest.useQuery({ region, category });
+  const utils = trpc.useUtils();
+  const digestQuery = trpc.intelligence.getMarketDigest.useQuery(
+    { region, category },
+    {
+      refetchInterval: (query) => (query.state.data?.warming ? 8000 : false),
+    }
+  );
+  const warmMutation = trpc.intelligence.warmIntelCache.useMutation({
+    onSuccess: async () => {
+      await utils.intelligence.getMarketDigest.invalidate({ region, category });
+    },
+  });
   const trendingQuery = trpc.trending.getFeed.useQuery({
     region,
     category,
     timeframe: trendWindow,
   });
+
+  useEffect(() => {
+    warmMutation.mutate({ region });
+  }, [region]);
+
+  useEffect(() => {
+    if (activeKeyword) return;
+    const fromDigest =
+      digestQuery.data?.rising[0]?.keyword ??
+      digestQuery.data?.metaHot[0]?.keyword ??
+      digestQuery.data?.tiktokHot[0]?.keyword;
+    const defaultKw = fromDigest ?? INTEL_SEED_KEYWORDS[0];
+    if (defaultKw) {
+      setKeyword(defaultKw);
+      setActiveKeyword(defaultKw);
+    }
+  }, [digestQuery.data, activeKeyword, region]);
+
+  const suggestionKeywords = useMemo(() => {
+    const seen = new Set<string>();
+    const merged: string[] = [];
+    for (const kw of [
+      ...(digestQuery.data?.rising.map((r) => r.keyword) ?? []),
+      ...(digestQuery.data?.metaHot.map((r) => r.keyword) ?? []),
+      ...(digestQuery.data?.tiktokHot.map((r) => r.keyword) ?? []),
+      ...INTEL_SEED_KEYWORDS,
+    ]) {
+      const key = kw.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(kw);
+    }
+    return merged;
+  }, [digestQuery.data]);
 
   const handleAnalyze = (kw: string) => {
     setActiveKeyword(kw);
@@ -55,17 +99,17 @@ export default function IntelligenceCenter() {
         title="Market Intelligence Center"
         description="Google Trends, Meta Ad Library, and trending products — explained in plain language. No more jumping between websites."
         badge={
-          digestQuery.data?.lastIngestAt ? (
+          digestQuery.data?.warming ? (
+            <Badge variant="secondary" className="text-[10px]">
+              Warming intel cache…
+            </Badge>
+          ) : digestQuery.data?.lastIngestAt ? (
             <Badge variant="outline" className="text-[10px]">
               Updated {new Date(digestQuery.data.lastIngestAt).toLocaleDateString()}
             </Badge>
           ) : null
         }
       />
-
-      <ProviderStatusBar />
-
-      <DataCoverageBanner pageId="intel-center" />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <SourceCard
@@ -142,10 +186,7 @@ export default function IntelligenceCenter() {
           setActiveKeyword(kw);
         }}
         onRegionChange={setRegion}
-        suggestions={
-          digestQuery.data?.rising.map((r) => r.keyword) ??
-          digestQuery.data?.metaHot.map((r) => r.keyword)
-        }
+        suggestions={suggestionKeywords}
       />
 
       <IntelAlertsPanel
@@ -186,7 +227,7 @@ export default function IntelligenceCenter() {
             title="Rising search demand"
             hint="Keywords where Google Trends shows growing interest — good candidates to research."
             items={digestQuery.data?.rising ?? []}
-            emptyMessage="No rising keywords cached yet. Run daily ingest or search a product in Google Trends."
+            emptyMessage="No rising keywords yet for this region. Search a product in Google Trends to get started."
             onSelect={(kw) => {
               setKeyword(kw);
               handleAnalyze(kw);
@@ -199,7 +240,7 @@ export default function IntelligenceCenter() {
             title="Most advertised on Meta"
             hint="Keywords with the highest active ad counts — competitive niches to study or differentiate."
             items={digestQuery.data?.metaHot ?? []}
-            emptyMessage="No Meta ad data yet. Add META_ACCESS_TOKEN and run ingest."
+            emptyMessage="Meta ad snapshots loading — pick a keyword above or wait for cache warm-up."
             onSelect={(kw) => {
               setKeyword(kw);
               handleAnalyze(kw);
@@ -210,10 +251,24 @@ export default function IntelligenceCenter() {
           />
 
           <DigestSection
+            title="Trending on TikTok"
+            hint="Keywords with viral TikTok content or ads — hooks, formats, and creator angles."
+            items={digestQuery.data?.tiktokHot ?? []}
+            emptyMessage="TikTok intel loading — uses RapidAPI, SearchAPI, or ScrapeCreators when configured."
+            onSelect={(kw) => {
+              setKeyword(kw);
+              handleAnalyze(kw);
+            }}
+            activeKeyword={activeKeyword}
+            showAds
+            viewAllHref={`${getDashboardPath("tiktokradar")}?region=${region}`}
+          />
+
+          <DigestSection
             title="Opportunities"
             hint="Rising demand with relatively few competitor ads — sweet spot for testing."
             items={digestQuery.data?.opportunities ?? []}
-            emptyMessage="No opportunity matches yet — check back after ingest populates trend + ad data."
+            emptyMessage="No opportunity matches yet. As trend and ad data builds up, we'll surface rising demand with lighter competition."
             onSelect={(kw) => {
               setKeyword(kw);
               handleAnalyze(kw);
@@ -370,7 +425,7 @@ function AlertBox() {
           without spending credits. Use live refresh (1–2 credits) only when you need the latest
           pull from Google or Meta.
         </p>
-        <p>Data refreshes daily via ingest. Pro users can also trigger live scans per keyword.</p>
+        <p>Data refreshes daily. Pro users can also trigger live scans per keyword.</p>
       </div>
     </div>
   );

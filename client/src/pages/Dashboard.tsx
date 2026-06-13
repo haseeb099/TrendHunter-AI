@@ -19,7 +19,6 @@ import TrendPulsePage from "./TrendPulsePage";
 import AdRadarPage from "./AdRadarPage";
 import TikTokRadarPage from "./TikTokRadarPage";
 import TikTokShopPage from "./TikTokShopPage";
-import { OnboardingChecklist } from "@/components/onboarding/OnboardingChecklist";
 import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { getActiveTab, getDashboardPath, type DashboardTabId } from "@/config/dashboardNav";
@@ -117,10 +116,13 @@ export default function Dashboard() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        <OnboardingChecklist />
+      {activeTab === "agent" ? (
+        <GatedContent tab={activeTab}>
+          <AIAgent />
+        </GatedContent>
+      ) : (
         <GatedContent tab={activeTab}>{renderContent()}</GatedContent>
-      </div>
+      )}
     </DashboardLayout>
   );
 }

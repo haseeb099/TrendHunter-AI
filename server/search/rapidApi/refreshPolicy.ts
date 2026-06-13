@@ -173,6 +173,24 @@ export function getRapidApiRefreshPolicies(): RapidApiRefreshPolicy[] {
       queryRefreshPeriod: "month",
       ingestPriority: 10,
     },
+    {
+      id: "rapidapi_tiktok_api",
+      monthlyCap: ENV.rapidApiTiktokApiMonthlyCap,
+      hourlyCap: 1000,
+      minIntervalMs: 1000,
+      maxItemsPerRequest: ENV.rapidApiTiktokApiMaxItems,
+      queryRefreshPeriod: "week",
+      ingestPriority: 45,
+    },
+    {
+      id: "rapidapi_tiktok_scraper",
+      monthlyCap: ENV.rapidApiTiktokScraperMonthlyCap,
+      hourlyCap: 1000,
+      minIntervalMs: 1000,
+      maxItemsPerRequest: ENV.rapidApiTiktokScraperMaxItems,
+      queryRefreshPeriod: "month",
+      ingestPriority: 20,
+    },
   ];
 }
 

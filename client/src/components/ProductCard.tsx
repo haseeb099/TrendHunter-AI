@@ -23,6 +23,7 @@ import { getDashboardPath } from "@/config/dashboardNav";
 import { keywordToSlug } from "@shared/keywordUtils";
 import { TrendScoreExplain } from "@/components/intelligence/TrendScoreExplain";
 import { DataFreshnessBadge } from "@/components/intelligence/DataFreshnessBadge";
+import { ConfidenceBadge } from "@/components/intelligence/ConfidenceBadge";
 import { SupplierMatchBadge } from "@/components/product-workspace/SupplierMatchBadge";
 import { useTrendWindow } from "@/_core/hooks/useTrendWindow";
 import { useProductAnalytics } from "@/_core/hooks/useProductAnalytics";
@@ -38,6 +39,10 @@ type ProductCardProps = {
   showTrendBadge?: boolean;
   /** Show Discover rank explanation (rankReason). */
   showRankReason?: boolean;
+  /** Show cached/live data labels (hide on Discover for customers). */
+  showDataFreshness?: boolean;
+  /** Show source provider badges e.g. CJ, Google Shopping (hide on Discover). */
+  showSourceMeta?: boolean;
 };
 
 export function ProductCard({
@@ -49,6 +54,8 @@ export function ProductCard({
   pipelinePending,
   showTrendBadge = true,
   showRankReason = false,
+  showDataFreshness = true,
+  showSourceMeta = true,
 }: ProductCardProps) {
   const currency = product.currency ?? "USD";
   const { label: trendWindowLabel } = useTrendWindow();
@@ -71,6 +78,10 @@ export function ProductCard({
       sourceProvider: product.sourceProvider,
     });
   }, [product.canonicalProductId, product.id, product.platform, product.sourceProvider, track]);
+
+  const explanation = product.rankingExplanation;
+  const topSignal = explanation?.topSignals?.[0]?.name;
+  const missingCount = explanation?.signalsMissing?.length ?? 0;
 
   return (
     <Card className="surface-interactive overflow-hidden p-0 flex flex-col group">
@@ -137,21 +148,21 @@ export function ProductCard({
                 Trending · {trendWindowLabel}
               </Badge>
             ) : null}
-            {product.supplierMatchState && product.supplierMatchState !== "none" ? (
+            {showSourceMeta && product.supplierMatchState && product.supplierMatchState !== "none" ? (
               <SupplierMatchBadge matchState={product.supplierMatchState} compact />
             ) : null}
-            {sourcingProviderLabel ? (
+            {showSourceMeta && sourcingProviderLabel ? (
               <Badge variant="secondary" className="text-[10px] gap-1">
                 <Truck className="w-3 h-3" />
                 {sourcingProviderLabel}
               </Badge>
             ) : null}
-            {product.sourceProvider && !sourcingProviderLabel ? (
+            {showSourceMeta && product.sourceProvider && !sourcingProviderLabel ? (
               <Badge variant="outline" className="text-[10px] capitalize">
                 via {product.sourceProvider.replace("_", " ")}
               </Badge>
             ) : null}
-            {product.dataLabel ? (
+            {showDataFreshness && product.dataLabel ? (
               <DataFreshnessBadge
                 state={product.dataState}
                 label={product.dataLabel}
@@ -163,6 +174,14 @@ export function ProductCard({
                 Estimated scores
               </Badge>
             ) : null}
+            {showTrendBadge && explanation?.confidence ? (
+              <ConfidenceBadge confidence={explanation.confidence} compact />
+            ) : null}
+            {product.rankingExplanation?.partialScore ? (
+              <Badge variant="outline" className="text-[10px] gap-1 text-muted-foreground">
+                Partial score
+              </Badge>
+            ) : null}
             {product.supplier ? (
               <Badge variant="outline" className="text-muted-foreground text-[11px]">
                 {product.supplier}
@@ -172,6 +191,13 @@ export function ProductCard({
           {showRankReason && product.rankReason ? (
             <p className="text-[11px] text-muted-foreground leading-snug line-clamp-2">
               {product.rankReason}
+            </p>
+          ) : null}
+          {showTrendBadge && (topSignal || missingCount > 0) ? (
+            <p className="text-[10px] text-muted-foreground leading-snug">
+              {topSignal ? <>Top signal: {topSignal}</> : null}
+              {topSignal && missingCount > 0 ? " · " : null}
+              {missingCount > 0 ? `${missingCount} signal${missingCount !== 1 ? "s" : ""} missing` : null}
             </p>
           ) : null}
         </div>

@@ -465,9 +465,13 @@ function AdminDashboardContent() {
           updateUser.mutate({ userId: selectedUserId, ...data });
         }}
         onDelete={() => {
-          if (!selectedUserId) return;
-          if (confirm("Permanently delete this user and all their data?")) {
-            deleteUser.mutate({ userId: selectedUserId });
+          if (!selectedUserId || !detailQuery.data?.user.email) return;
+          const email = detailQuery.data.user.email;
+          const typed = prompt(
+            `This permanently deletes the user and all data.\n\nType ${email} to confirm:`
+          );
+          if (typed && typed.toLowerCase() === email.toLowerCase()) {
+            deleteUser.mutate({ userId: selectedUserId, confirmEmail: typed });
           }
         }}
         onResetPassword={(password) => {

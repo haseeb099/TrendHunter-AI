@@ -11,40 +11,47 @@ import {
   json,
 } from "drizzle-orm/mysql-core";
 
-export const users = mysqlTable("users", {
-  id: int("id").autoincrement().primaryKey(),
-  openId: varchar("openId", { length: 64 }).notNull().unique(),
-  name: text("name"),
-  email: varchar("email", { length: 320 }),
-  loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
-  passwordHash: varchar("passwordHash", { length: 255 }),
-  planId: mysqlEnum("planId", ["trial", "starter", "pro", "business", "agency"])
-    .default("trial")
-    .notNull(),
-  planStatus: mysqlEnum("planStatus", ["active", "expired", "cancelled"])
-    .default("active")
-    .notNull(),
-  trialStartedAt: timestamp("trialStartedAt"),
-  trialEndsAt: timestamp("trialEndsAt"),
-  planStartedAt: timestamp("planStartedAt"),
-  planExpiresAt: timestamp("planExpiresAt"),
-  hasUsedTrial: boolean("hasUsedTrial").default(false).notNull(),
-  stripeCustomerId: varchar("stripeCustomerId", { length: 255 }),
-  stripeSubscriptionId: varchar("stripeSubscriptionId", { length: 255 }),
-  accountStatus: mysqlEnum("accountStatus", ["active", "deactivated", "flagged", "paused"])
-    .default("active")
-    .notNull(),
-  flagReason: varchar("flagReason", { length: 512 }),
-  adminNotes: text("adminNotes"),
-  limitOverrides: json("limitOverrides"),
-  pausedUntil: timestamp("pausedUntil"),
-  termsAcceptedAt: timestamp("termsAcceptedAt"),
-  privacyAcceptedAt: timestamp("privacyAcceptedAt"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
-});
+export const users = mysqlTable(
+  "users",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    openId: varchar("openId", { length: 64 }).notNull().unique(),
+    name: text("name"),
+    email: varchar("email", { length: 320 }),
+    loginMethod: varchar("loginMethod", { length: 64 }),
+    role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+    passwordHash: varchar("passwordHash", { length: 255 }),
+    planId: mysqlEnum("planId", ["trial", "starter", "pro", "business", "agency"])
+      .default("trial")
+      .notNull(),
+    planStatus: mysqlEnum("planStatus", ["active", "expired", "cancelled"])
+      .default("active")
+      .notNull(),
+    trialStartedAt: timestamp("trialStartedAt"),
+    trialEndsAt: timestamp("trialEndsAt"),
+    planStartedAt: timestamp("planStartedAt"),
+    planExpiresAt: timestamp("planExpiresAt"),
+    hasUsedTrial: boolean("hasUsedTrial").default(false).notNull(),
+    stripeCustomerId: varchar("stripeCustomerId", { length: 255 }),
+    stripeSubscriptionId: varchar("stripeSubscriptionId", { length: 255 }),
+    accountStatus: mysqlEnum("accountStatus", ["active", "deactivated", "flagged", "paused"])
+      .default("active")
+      .notNull(),
+    flagReason: varchar("flagReason", { length: 512 }),
+    adminNotes: text("adminNotes"),
+    limitOverrides: json("limitOverrides"),
+    pausedUntil: timestamp("pausedUntil"),
+    termsAcceptedAt: timestamp("termsAcceptedAt"),
+    privacyAcceptedAt: timestamp("privacyAcceptedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+    lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
+  },
+  (table) => ({
+    planStatusIdx: index("users_plan_status_idx").on(table.planId, table.planStatus),
+    accountStatusIdx: index("users_account_status_idx").on(table.accountStatus),
+  })
+);
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
@@ -251,14 +258,21 @@ export type SupplierCatalogEntry = typeof supplierCatalog.$inferSelect;
 export type InsertSupplierCatalogEntry = typeof supplierCatalog.$inferInsert;
 
 // Admin audit trail
-export const adminAuditLog = mysqlTable("admin_audit_log", {
-  id: int("id").autoincrement().primaryKey(),
-  adminUserId: int("adminUserId").notNull(),
-  targetUserId: int("targetUserId").notNull(),
-  action: varchar("action", { length: 64 }).notNull(),
-  details: json("details"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+export const adminAuditLog = mysqlTable(
+  "admin_audit_log",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    adminUserId: int("adminUserId").notNull(),
+    targetUserId: int("targetUserId").notNull(),
+    action: varchar("action", { length: 64 }).notNull(),
+    details: json("details"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    createdAtIdx: index("admin_audit_created_idx").on(table.createdAt),
+    targetUserIdx: index("admin_audit_target_user_idx").on(table.targetUserId),
+  })
+);
 
 export type AdminAuditLog = typeof adminAuditLog.$inferSelect;
 
@@ -319,6 +333,8 @@ export const couponRedemptions = mysqlTable("coupon_redemptions", {
   couponId: int("couponId").notNull(),
   userId: int("userId").notNull(),
   stripePromotionCodeId: varchar("stripePromotionCodeId", { length: 255 }),
+  /** Set when Stripe checkout completes with this promotion applied */
+  checkoutConsumedAt: timestamp("checkoutConsumedAt"),
   redeemedAt: timestamp("redeemedAt").defaultNow().notNull(),
 });
 
@@ -510,21 +526,29 @@ export const userCredits = mysqlTable("user_credits", {
 
 export type UserCredits = typeof userCredits.$inferSelect;
 
-export const creditTransactions = mysqlTable("credit_transactions", {
-  id: int("id").autoincrement().primaryKey(),
-  userId: int("userId").notNull(),
-  amount: int("amount").notNull(),
-  type: mysqlEnum("type", [
-    "monthly_grant",
-    "purchase",
-    "spend",
-    "admin_grant",
-    "refund",
-  ]).notNull(),
-  action: varchar("action", { length: 64 }),
-  metadata: json("metadata"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+export const creditTransactions = mysqlTable(
+  "credit_transactions",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId").notNull(),
+    amount: int("amount").notNull(),
+    type: mysqlEnum("type", [
+      "monthly_grant",
+      "purchase",
+      "spend",
+      "admin_grant",
+      "refund",
+    ]).notNull(),
+    action: varchar("action", { length: 64 }),
+    metadata: json("metadata"),
+    stripeSessionId: varchar("stripeSessionId", { length: 255 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    stripeSessionIdx: index("credit_tx_stripe_session_idx").on(table.stripeSessionId),
+    userCreatedIdx: index("credit_tx_user_created_idx").on(table.userId, table.createdAt),
+  })
+);
 
 export type CreditTransaction = typeof creditTransactions.$inferSelect;
 

@@ -11,14 +11,9 @@ import {
 } from "@/components/ui/select";
 import { Search } from "lucide-react";
 import type { RegionCode } from "@shared/searchTypes";
+import { INTEL_SEED_KEYWORDS } from "@shared/intelSeedKeywords";
 
-const SUGGESTED = [
-  "wireless earbuds",
-  "portable blender",
-  "pet grooming kit",
-  "led desk lamp",
-  "skincare serum",
-];
+const SUGGESTED = [...INTEL_SEED_KEYWORDS];
 
 type KeywordExplorerProps = {
   keyword: string;

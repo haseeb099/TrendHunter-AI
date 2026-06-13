@@ -11,6 +11,8 @@ export async function fuseProductTrendScore(
     forceTrending: options?.forceTrending,
     query: options?.query,
     listingCount: product.alsoListedOn ? product.alsoListedOn.length + 1 : 1,
+    allowHeuristicScores: true,
+    fetchLiveIntel: true,
   });
 }
 

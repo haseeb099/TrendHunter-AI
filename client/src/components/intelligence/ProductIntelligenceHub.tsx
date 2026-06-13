@@ -69,17 +69,17 @@ export function ProductIntelligenceHub({
 
   const trendQuery = trpc.intelligence.getTrendPulse.useQuery(
     { keyword, region, live: false },
-    { enabled: Boolean(keyword.trim()) && subTab === "google" }
+    { enabled: Boolean(keyword.trim()) }
   );
 
   const adsQuery = trpc.intelligence.getAdRadar.useQuery(
     { keyword, region, live: false },
-    { enabled: Boolean(keyword.trim()) && subTab === "meta" }
+    { enabled: Boolean(keyword.trim()) }
   );
 
   const tiktokQuery = trpc.intelligence.getTikTokRadar.useQuery(
     { keyword, region, live: false },
-    { enabled: Boolean(keyword.trim()) && subTab === "tiktok" }
+    { enabled: Boolean(keyword.trim()) }
   );
 
   const summary = summaryQuery.data;
@@ -178,7 +178,7 @@ export function ProductIntelligenceHub({
             <>
               <IntelligenceVerdict summary={summary} stale={summary?.stale} />
 
-              <div className="grid grid-cols-2 gap-2 text-center">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-center">
                 <MetricTile
                   label="Trend score"
                   value={summary?.trendMomentum != null ? String(Math.round(summary.trendMomentum)) : "—"}
@@ -190,6 +190,19 @@ export function ProductIntelligenceHub({
                   sub={
                     summary?.advertiserCount != null
                       ? `${summary.advertiserCount} advertisers`
+                      : "No data"
+                  }
+                />
+                <MetricTile
+                  label="TikTok"
+                  value={
+                    summary?.tiktokActiveAdCount != null
+                      ? String(summary.tiktokActiveAdCount)
+                      : "—"
+                  }
+                  sub={
+                    summary?.tiktokAdvertiserCount != null
+                      ? `${summary.tiktokAdvertiserCount} creators`
                       : "No data"
                   }
                 />

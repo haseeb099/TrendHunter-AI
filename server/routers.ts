@@ -67,7 +67,6 @@ import {
   saveProfitCalculation,
   deleteProfitCalculation,
   getSuppliers,
-  getSupplierCatalog,
   createSupplier,
   updateSupplier,
   deleteSupplier,
@@ -93,6 +92,7 @@ import {
   assertDatabaseAvailable,
 } from "./db";
 import { buildPasswordResetEmail, sendEmail } from "./notifications/email";
+import { sendWelcomeEmail } from "./notifications/lifecycleEmails";
 import { invokeLLMOrThrow } from "./_core/aiHelpers";
 import { getSearchProviderStatus, getMarketplaceCoverage, searchProducts as runProductSearch } from "./search";
 import { paginateResults } from "./search/pagination";
@@ -104,13 +104,18 @@ import {
   SHIP_FROM_OPTIONS,
   SORT_OPTIONS,
   type ProductHuntFilters,
+  type ProductSearchResponse,
+  type ProductSearchResult,
   type RegionCode,
 } from "@shared/searchTypes";
+import { resolveCompetitorSearchInput } from "@shared/competitorUrl";
+import { normalizeIntelKeyword } from "@shared/intelKeyword";
 import { ENV } from "./_core/env";
 import { createLogger } from "./_core/logger";
 import { getSupportedRegionOptions } from "./search/regions";
 import { getTrendingFeed } from "./trending";
 import { computeSupplierConfidenceTier, getOffersForProduct, getOffersStatus } from "./suppliers";
+import { getEnrichedSupplierCatalog } from "./suppliers/catalog";
 import { attachOffersTruthLabels, attachSearchResponseTruthLabels } from "./search/truthLabels";
 import { getProductSnapshotDiff } from "./dataPlatform/snapshotDiff";
 import { computeNextMoves } from "./ranking/nextMoves";
@@ -238,6 +243,7 @@ export const appRouter = router({
         const token = await createSessionToken(user.openId, user.name ?? "");
         setSessionCookie(ctx.req, ctx.res, token);
         authLog.info("register_success", { userId: user.id, email });
+        void sendWelcomeEmail(email, user.name ?? email.split("@")[0] ?? "there");
         return toPublicUser(user);
       }),
     login: publicProcedure
@@ -444,7 +450,7 @@ export const appRouter = router({
           isDemo: results.isDemo,
         });
 
-        if (input.live) {
+        if (input.live && results.results.length > 0 && !results.isDemo) {
           creditsUsed = await spendCredits(user, "live_search", {
             query: input.query,
             platform: input.platform,
@@ -681,56 +687,79 @@ Also include reasoning as a one-sentence overall summary.`;
       )
       .mutation(async ({ ctx, input }) => {
         const user = getCtxUser(ctx);
-        const keyword = input.keyword?.trim() ?? "";
         const url = input.url?.trim() ?? "";
         const region = (input.region ?? ENV.defaultRegion) as RegionCode;
         let creditsUsed = 0;
 
-        let marketplaceContext = "";
-        if (keyword) {
-          try {
-            const searchResult = await runProductSearch(
-              keyword,
-              "all",
-              { sort: "price_asc", region },
-              { live: input.live }
-            );
-            if (input.live) {
-              await recordUserEvent(user.id, "search_query", {
-                query: keyword,
-                platform: "all",
-                source: "competitors",
-                live: true,
-              });
-            }
-            const top = searchResult.results.slice(0, 6);
-            if (top.length > 0) {
-              marketplaceContext = `\n\nMarketplace snapshot (${searchResult.dataMode ?? "cached"} data):\n${top
-                .map(
-                  (p) =>
-                    `- [${p.platform}] ${p.title} @ ${p.price} ${p.currency ?? "USD"}${p.rating ? ` rating ${p.rating}` : ""}`
-                )
-                .join("\n")}`;
-            }
-          } catch {
-            /* search enrichment is best-effort */
-          }
+        if (!url && !input.keyword?.trim()) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Enter a competitor store URL or product keyword.",
+          });
         }
 
-        const [trend, ads] = keyword
-          ? await Promise.all([
-              getTrendSignal(keyword, region, { live: input.live }),
-              getAdLibrarySnapshot(keyword, region, { live: input.live }),
-            ])
-          : [null, null];
+        const resolved = resolveCompetitorSearchInput({
+          url,
+          keyword: input.keyword,
+        });
 
-        const intelContext = keyword
-          ? buildIntelligenceContext(keyword, trend, ads)
-          : "";
+        if (!resolved.query) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Could not infer a search term from that URL. Add a product keyword, or paste a product or search URL from Amazon, eBay, or Shopify.",
+          });
+        }
+
+        const effectiveKeyword = resolved.query;
+        const intelKeyword = normalizeIntelKeyword(effectiveKeyword) || effectiveKeyword;
+        const searchPlatform = resolved.platform ?? "all";
+
+        let marketplaceContext = "";
+        let competitorProducts: ProductSearchResult[] = [];
+        let searchDataMode: ProductSearchResponse["dataMode"] = "cached";
+
+        try {
+          const searchResult = await runProductSearch(
+            effectiveKeyword,
+            searchPlatform,
+            { sort: "price_asc", region },
+            { live: input.live }
+          );
+          searchDataMode = searchResult.dataMode ?? "cached";
+          competitorProducts = searchResult.results.slice(0, 12);
+          if (input.live) {
+            await recordUserEvent(user.id, "search_query", {
+              query: effectiveKeyword,
+              platform: searchPlatform,
+              source: "competitors",
+              live: true,
+            });
+          }
+          const top = competitorProducts.slice(0, 6);
+          if (top.length > 0) {
+            marketplaceContext = `\n\nMarketplace snapshot (${searchDataMode} data):\n${top
+              .map(
+                (p) =>
+                  `- [${p.platform}] ${p.title} @ ${p.price} ${p.currency ?? "USD"}${p.rating ? ` rating ${p.rating}` : ""}`
+              )
+              .join("\n")}`;
+          }
+        } catch (err) {
+          console.warn("[competitor] marketplace_search_failed", err);
+        }
+
+        const [trend, ads] = await Promise.all([
+          getTrendSignal(intelKeyword, region, { live: input.live }),
+          getAdLibrarySnapshot(intelKeyword, region, { live: input.live }),
+        ]);
+
+        const intelContext = buildIntelligenceContext(intelKeyword, trend, ads);
 
         const prompt = `Analyze this competitor listing/store:
 ${url ? `URL: ${url}` : "URL: not provided"}
-${keyword ? `Keyword focus: ${keyword}` : ""}${marketplaceContext}
+Keyword focus: ${effectiveKeyword}
+Trend/ad keyword: ${intelKeyword}${marketplaceContext}
 ${intelContext ? `\n\nTrend & ad intelligence:\n${intelContext}` : ""}
 
 Provide competitive intelligence in JSON format:
@@ -782,14 +811,20 @@ Provide competitive intelligence in JSON format:
         const parsed =
           content && typeof content === "string" ? JSON.parse(content) : { position: "Analysis complete" };
 
-        if (input.live && keyword) {
-          creditsUsed = await spendCredits(user, "competitor_live", { keyword });
+        if (input.live) {
+          creditsUsed = await spendCredits(user, "competitor_live", {
+            keyword: effectiveKeyword,
+          });
         }
         await recordUserEvent(user.id, "ai_call", { feature: "competitors" });
         return {
           analysis: parsed,
           timestamp: new Date(),
           creditsUsed,
+          effectiveKeyword,
+          intelKeyword,
+          competitorProducts,
+          searchDataMode,
           trendSignal: trend,
           adSnapshot: ads,
         };
@@ -912,8 +947,18 @@ Provide competitive intelligence in JSON format:
         return attachOffersTruthLabels(response, configured);
       }),
     getCatalog: protectedBase
-      .input(z.object({ category: z.string().optional() }))
-      .query(({ input }) => getSupplierCatalog(input.category)),
+      .input(
+        z.object({
+          category: z.string().optional(),
+          region: regionCodeSchema.optional(),
+        })
+      )
+      .query(({ input }) =>
+        getEnrichedSupplierCatalog({
+          category: input.category,
+          region: input.region as RegionCode | undefined,
+        })
+      ),
     getOffersStatus: protectedBase.query(() => getOffersStatus()),
   }),
 
@@ -1649,6 +1694,28 @@ Return as JSON with gaps array, each containing: title, opportunity, demand_leve
 
         const session = await getChatSession(input.sessionId, userId);
         const isFirstMessage = session?.title === "New Chat";
+
+        const { assessAgentMessageTopic } = await import("./agent/topicGuard");
+        const topicCheck = assessAgentMessageTopic(input.content);
+        if (!topicCheck.allowed) {
+          await addChatMessage({
+            sessionId: input.sessionId,
+            userId,
+            role: "user",
+            content: input.content,
+          });
+          await addChatMessage({
+            sessionId: input.sessionId,
+            userId,
+            role: "assistant",
+            content: topicCheck.reply,
+          });
+          return {
+            message: topicCheck.reply,
+            sessionTitle: undefined,
+            tokensUsed: 0,
+          };
+        }
 
         await addChatMessage({
           sessionId: input.sessionId,

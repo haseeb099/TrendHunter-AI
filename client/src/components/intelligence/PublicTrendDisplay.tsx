@@ -25,7 +25,7 @@ export function PublicTrendDisplay({ trend }: PublicTrendDisplayProps) {
   if (!trend) {
     return (
       <p className="text-sm text-muted-foreground">
-        Trend data is refreshed daily. Check back after the next ingest run, or sign up for live
+        Trend data is refreshed daily. Check back soon, or sign up for live
         refresh with credits.
       </p>
     );

@@ -101,7 +101,7 @@ export const ENV = {
   trendingMaxItems: parseInt(process.env.TRENDING_MAX_ITEMS ?? "200", 10),
   trendingMaxItemsCategory: parseInt(process.env.TRENDING_MAX_ITEMS_CATEGORY ?? "60", 10),
   searchCacheTtlHours: parseInt(process.env.SEARCH_CACHE_TTL_HOURS ?? "24", 10),
-  offersCacheTtlHours: parseInt(process.env.OFFERS_CACHE_TTL_HOURS ?? "24", 10),
+  offersCacheTtlHours: parseInt(process.env.OFFERS_CACHE_TTL_HOURS ?? "6", 10),
   ingestMode: process.env.INGEST_MODE !== "live_first",
   serpApiDailyCap: parseInt(process.env.SERPAPI_DAILY_CAP ?? "10", 10),
   /** @deprecated Use SERPER_WEEKLY_CAP per account; kept for legacy daily guard */
@@ -192,6 +192,21 @@ export const ENV = {
   rapidApiNewsApiHost: process.env.RAPIDAPI_NEWS_API_HOST?.trim() ?? "news-api14.p.rapidapi.com",
   rapidApiNewsApiEnabled: process.env.RAPIDAPI_NEWS_API_ENABLED !== "false",
   rapidApiNewsApiMonthlyCap: parseInt(process.env.RAPIDAPI_NEWS_API_MONTHLY_CAP ?? "1000", 10),
+  /** MediaCrawlers TikTok scraper — user media feed by username */
+  rapidApiTiktokScraperHost:
+    process.env.RAPIDAPI_TIKTOK_SCRAPER_HOST?.trim() ??
+    "tiktok-api-fast-reliable-data-scraper.p.rapidapi.com",
+  rapidApiTiktokScraperEnabled: process.env.RAPIDAPI_TIKTOK_SCRAPER_ENABLED !== "false",
+  rapidApiTiktokScraperMonthlyCap: parseInt(
+    process.env.RAPIDAPI_TIKTOK_SCRAPER_MONTHLY_CAP ?? "100",
+    10
+  ),
+  rapidApiTiktokScraperMaxItems: parseInt(process.env.RAPIDAPI_TIKTOK_SCRAPER_MAX_ITEMS ?? "10", 10),
+  /** Tikfly TikTok API — search, user posts, oldest posts */
+  rapidApiTiktokApiHost: process.env.RAPIDAPI_TIKTOK_API_HOST?.trim() ?? "tiktok-api23.p.rapidapi.com",
+  rapidApiTiktokApiEnabled: process.env.RAPIDAPI_TIKTOK_API_ENABLED !== "false",
+  rapidApiTiktokApiMonthlyCap: parseInt(process.env.RAPIDAPI_TIKTOK_API_MONTHLY_CAP ?? "100", 10),
+  rapidApiTiktokApiMaxItems: parseInt(process.env.RAPIDAPI_TIKTOK_API_MAX_ITEMS ?? "10", 10),
   /** Max RapidAPI calls per daily ingest cycle. 0 = per-provider budgets only (recommended). */
   rapidApiIngestMaxPerCycle: parseInt(process.env.RAPIDAPI_INGEST_MAX_PER_CYCLE ?? "0", 10),
   metaAdsDailyCap: parseInt(process.env.META_ADS_DAILY_CAP ?? "15", 10),

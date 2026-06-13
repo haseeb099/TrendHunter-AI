@@ -362,11 +362,77 @@
   }
 
   .chat-bubble-user {
-    @apply bg-primary text-primary-foreground rounded-2xl rounded-br-md px-4 py-3 text-sm leading-relaxed;
+    @apply bg-primary text-primary-foreground rounded-2xl rounded-br-md px-4 py-3.5 text-sm leading-relaxed;
   }
 
   .chat-bubble-assistant {
-    @apply bg-muted/80 text-foreground rounded-2xl rounded-bl-md px-4 py-3 text-sm leading-relaxed border border-border;
+    @apply bg-muted/80 text-foreground rounded-2xl rounded-bl-md px-4 py-3.5 text-sm leading-relaxed border border-border;
+  }
+
+  .agent-scroll-pane {
+    min-height: 0;
+    flex: 1 1 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .agent-chat-root {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    min-height: calc(100dvh - 3.75rem);
+    max-height: calc(100dvh - 3.75rem);
+    overflow: hidden;
+  }
+
+  .agent-chat-shell {
+    display: grid;
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: hidden;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  @media (min-width: 1024px) {
+    .agent-chat-shell {
+      grid-template-columns: 17.5rem minmax(0, 1fr);
+    }
+  }
+
+  .agent-chat-sidebar {
+    display: grid;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    border-right: 1px solid var(--border);
+    background: color-mix(in srgb, var(--card) 40%, transparent);
+  }
+
+  .agent-chat-main {
+    display: grid;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+
+  .agent-chat-messages {
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .agent-chat-sessions {
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
   }
 
   .cost-bar-segment {

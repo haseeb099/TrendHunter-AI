@@ -90,6 +90,8 @@ export const PROVIDER_BUDGET_RULES: Record<string, ProviderBudgetRule> = {
   rapidapi_web_search: { tier: "free", ingestOnly: true, hourlyCap: 1000, minIntervalMs: 1000 },
   rapidapi_news_data: { tier: "free", ingestOnly: true, hourlyCap: 1000, minIntervalMs: 1000 },
   rapidapi_news_api: { tier: "free", ingestOnly: true, hourlyCap: 1000 },
+  rapidapi_tiktok_scraper: { tier: "free", ingestOnly: true, hourlyCap: 1000, minIntervalMs: 1000 },
+  rapidapi_tiktok_api: { tier: "free", ingestOnly: true, hourlyCap: 1000, minIntervalMs: 1000 },
   rapid_ebay: { tier: "free", ingestOnly: true },
   rapid_walmart: { tier: "free", ingestOnly: true },
   rapid_aliexpress: { tier: "free", ingestOnly: true },

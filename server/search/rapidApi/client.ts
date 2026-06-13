@@ -130,8 +130,9 @@ export async function rapidApiRequest<T>(options: RapidApiRequestOptions): Promi
       body: options.body != null ? JSON.stringify(options.body) : undefined,
     });
 
+    const text = await response.text();
+
     if (!response.ok) {
-      const text = await response.text();
       throw new Error(`${config.label} failed (${response.status}): ${text.slice(0, 300)}`);
     }
 
@@ -146,6 +147,10 @@ export async function rapidApiRequest<T>(options: RapidApiRequestOptions): Promi
       }
     }
 
-    return (await response.json()) as T;
+    if (response.status === 204 || !text.trim()) {
+      return null;
+    }
+
+    return JSON.parse(text) as T;
   });
 }

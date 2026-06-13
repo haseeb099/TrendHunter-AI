@@ -10,7 +10,9 @@ DropHunter / TrendHunter surfaces multiple data sources with explicit freshness 
 | **cached** | Valid snapshot from DB within TTL | Cached |
 | **stale** | Expired snapshot served because live was not called | Stale cache |
 | **synthetic** | AI-generated content (no marketplace/API backing) | AI-generated |
-| **unavailable** | Provider not configured or no data exists | Unavailable |
+| **estimated** | Heuristic or inferred ranking/listing values | Estimated |
+| **missing** | Provider not configured or no data exists | Missing |
+| **unavailable** | Legacy alias — resolves to **missing** in UI | Unavailable |
 
 Resolution logic lives in `shared/searchTypes.ts` → `resolveDataState()`.
 
@@ -26,7 +28,7 @@ Resolution logic lives in `shared/searchTypes.ts` → `resolveDataState()`.
 
 ### Supplier offers (`supplier.getOffersForProduct`)
 
-- Cached `product_offers` rows (6h TTL).
+- Cached `product_offers` rows (24h TTL per `OFFERS_CACHE_TTL_HOURS` default).
 - Stale fallback when live supplier APIs fail.
 
 ### Intelligence — Google Trends (`intelligence.getTrendPulse`)

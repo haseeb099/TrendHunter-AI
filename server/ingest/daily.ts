@@ -43,19 +43,7 @@ const log = createLogger("ingest");
 
 
 
-const TREND_KEYWORDS = [
-
-  "wireless earbuds",
-
-  "portable blender",
-
-  "led strip lights",
-
-  "pet grooming kit",
-
-  "skincare serum",
-
-];
+import { INTEL_SEED_KEYWORDS } from "@shared/intelSeedKeywords";
 
 
 
@@ -163,7 +151,7 @@ export async function runDailyIngest(): Promise<{
 
     try {
 
-      const trendCount = await ingestTrendKeywords(TREND_KEYWORDS, region);
+      const trendCount = await ingestTrendKeywords([...INTEL_SEED_KEYWORDS], region);
 
       apiCounts[`trends_${region}`] = trendCount;
 
@@ -177,7 +165,7 @@ export async function runDailyIngest(): Promise<{
 
     try {
 
-      const adCount = await ingestAdKeywords(TREND_KEYWORDS, region);
+      const adCount = await ingestAdKeywords([...INTEL_SEED_KEYWORDS], region);
 
       apiCounts[`ads_${region}`] = adCount;
 
@@ -191,7 +179,7 @@ export async function runDailyIngest(): Promise<{
 
     try {
 
-      const tiktokCount = await ingestTikTokAdKeywords(TREND_KEYWORDS, region);
+      const tiktokCount = await ingestTikTokAdKeywords([...INTEL_SEED_KEYWORDS], region);
 
       apiCounts[`tiktok_ads_${region}`] = tiktokCount;
 
@@ -254,7 +242,7 @@ export async function runDailyIngest(): Promise<{
 
 
 
-  for (const kw of TREND_KEYWORDS.slice(0, 3)) {
+  for (const kw of INTEL_SEED_KEYWORDS.slice(0, 3)) {
 
     try {
 

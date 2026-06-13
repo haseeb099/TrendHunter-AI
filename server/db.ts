@@ -1582,7 +1582,8 @@ export async function getActiveStripeDiscountForUser(
     .where(
       and(
         eq(couponRedemptions.userId, userId),
-        eq(coupons.couponType, "discount_percent")
+        eq(coupons.couponType, "discount_percent"),
+        isNull(couponRedemptions.checkoutConsumedAt)
       )
     )
     .orderBy(desc(couponRedemptions.redeemedAt))
@@ -1590,6 +1591,41 @@ export async function getActiveStripeDiscountForUser(
 
   const promoId = rows[0]?.promoId;
   return promoId ?? null;
+}
+
+export async function markStripeDiscountConsumed(
+  userId: number,
+  stripeSessionId: string
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  const rows = await db
+    .select({ id: couponRedemptions.id, couponId: couponRedemptions.couponId })
+    .from(couponRedemptions)
+    .innerJoin(coupons, eq(couponRedemptions.couponId, coupons.id))
+    .where(
+      and(
+        eq(couponRedemptions.userId, userId),
+        eq(coupons.couponType, "discount_percent"),
+        isNull(couponRedemptions.checkoutConsumedAt)
+      )
+    )
+    .orderBy(desc(couponRedemptions.redeemedAt))
+    .limit(1);
+
+  const row = rows[0];
+  if (!row) return;
+
+  await db
+    .update(couponRedemptions)
+    .set({ checkoutConsumedAt: new Date() })
+    .where(eq(couponRedemptions.id, row.id));
+
+  await db
+    .update(coupons)
+    .set({ redemptionCount: sql`${coupons.redemptionCount} + 1` })
+    .where(eq(coupons.id, row.couponId));
 }
 
 export async function createPasswordResetToken(data: InsertPasswordResetToken) {

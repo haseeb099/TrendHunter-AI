@@ -102,6 +102,14 @@ export type RankingExplanation = {
     weight: number;
     contribution: number;
   }>;
+  /** Signal names included in the fused score. */
+  signalsUsed?: string[];
+  /** Signal names absent — score is partial when non-empty. */
+  signalsMissing?: string[];
+  /** True when weight coverage is below full model (missing live signals). */
+  partialScore?: boolean;
+  /** Fraction of model weight with resolved signals (0–1). */
+  scoreCoverage?: number;
   confidence: "high" | "medium" | "low";
   staleFeatures?: boolean;
   /** True when one or more ranking signals used heuristic fallbacks. */
@@ -198,15 +206,26 @@ export type MarketplaceCoverage = {
 export type DataMode = "cached" | "live";
 
 /** How trustworthy / fresh the displayed data is */
-export type DataState = "live" | "cached" | "stale" | "synthetic" | "unavailable";
+export type DataState =
+  | "live"
+  | "cached"
+  | "stale"
+  | "synthetic"
+  | "unavailable"
+  /** Heuristic or inferred values — not from a live provider fetch */
+  | "estimated"
+  /** Provider not configured or no data exists */
+  | "missing";
 
 export function resolveDataState(options: {
   dataMode?: DataMode;
   stale?: boolean;
   synthetic?: boolean;
   unavailable?: boolean;
+  inferredScores?: boolean;
 }): DataState {
-  if (options.unavailable) return "unavailable";
+  if (options.unavailable) return "missing";
+  if (options.inferredScores) return "estimated";
   if (options.synthetic) return "synthetic";
   if (options.dataMode === "live") return "live";
   if (options.stale) return "stale";

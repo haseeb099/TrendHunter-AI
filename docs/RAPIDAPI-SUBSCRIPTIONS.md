@@ -22,6 +22,8 @@ Run `pnpm discover:rapid-apis` to verify which endpoints respond with your key.
 | **Real-Time Web Search** | `real-time-web-search.p.rapidapi.com` | `GET /search` | 100/mo | 10 URLs | Yes |
 | **Real-Time News Data** | `real-time-news-data.p.rapidapi.com` | `GET /search` | 100/mo | 5 articles | Yes |
 | **News API** | `news-api14.p.rapidapi.com` | `GET /v2/search/articles` | 1000/mo | 10 articles | Yes |
+| **TikTok Scraper** | `tiktok-api-fast-reliable-data-scraper.p.rapidapi.com` | `GET /user/feed` | 100/mo | 10 videos | Yes (intel) |
+| **Tiktok API (Tikfly)** | `tiktok-api23.p.rapidapi.com` | `GET /api/search/video` | 100/mo | 10 videos | Yes (intel) |
 | Real-Time Product Search | `real-time-product-search.p.rapidapi.com` | `/search`, `/product-offers` | 100/mo | 10 + merchants | Yes |
 | Real-Time Amazon Data | `real-time-amazon-data.p.rapidapi.com` | `/product-category-list`, `/search` | 100/mo | categories / ASINs | Yes |
 | Google Search | `google-search116.p.rapidapi.com` | `/?query=` | 1000/mo | 8+ URLs | Yes |
@@ -74,6 +76,8 @@ RAPIDAPI_ALIEXPRESS_DATAHUB_MONTHLY_CAP=100
 RAPIDAPI_WEB_SEARCH_MONTHLY_CAP=100
 RAPIDAPI_NEWS_DATA_MONTHLY_CAP=100
 RAPIDAPI_NEWS_API_MONTHLY_CAP=1000
+RAPIDAPI_TIKTOK_SCRAPER_MONTHLY_CAP=100
+RAPIDAPI_TIKTOK_API_MONTHLY_CAP=100
 ```
 
 ---

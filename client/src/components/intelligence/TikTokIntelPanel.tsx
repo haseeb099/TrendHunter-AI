@@ -39,7 +39,6 @@ export function TikTokIntelPanel({
 
   const snapshot = publicMode ? mapPublicTikTok(publicQuery.data?.tiktok) : radarQuery.data?.snapshot;
   const configured = publicMode ? Boolean(publicQuery.data?.tiktok) : (radarQuery.data?.configured ?? false);
-  const provider = radarQuery.data?.provider;
   const isLoading = publicMode ? publicQuery.isLoading : radarQuery.isLoading;
 
   const handleLiveRefresh = async () => {
@@ -80,6 +79,7 @@ export function TikTokIntelPanel({
 
   const isAdLibrary = snapshot?.source === "searchapi";
   const isOrganic = snapshot?.source === "scrapecreators";
+  const isRapidApi = snapshot?.source === "rapidapi_tiktok";
 
   return (
     <div className={compact ? "space-y-3" : "space-y-4"}>
@@ -89,7 +89,7 @@ export function TikTokIntelPanel({
           <p className="text-sm font-medium">TikTok {isAdLibrary ? "Ad Library" : "content intel"}</p>
           {snapshot?.source ? (
             <Badge variant="secondary" className="text-[10px]">
-              {isAdLibrary ? "SearchAPI" : isOrganic ? "Organic" : "Cached"}
+              {isAdLibrary ? "SearchAPI" : isOrganic ? "Organic" : isRapidApi ? "RapidAPI" : "Cached"}
             </Badge>
           ) : null}
         </div>
@@ -116,13 +116,14 @@ export function TikTokIntelPanel({
       </div>
 
       {!configured && !snapshot ? (
-        <div className="rounded-lg border border-dashed border-border p-4 text-xs text-muted-foreground space-y-1">
+        <div className="rounded-lg border border-dashed border-border p-4 text-xs text-muted-foreground space-y-2">
           <p>
-            Add <code className="text-[10px]">SEARCHAPI_KEY</code> for TikTok Ad Library data, or{" "}
-            <code className="text-[10px]">TIKTOK_SHOP_API_KEY</code> for organic TikTok content via
-            ScrapeCreators. Cached data appears after daily ingest.
+            TikTok intel not configured — add SEARCHAPI_KEY, RAPIDAPI_TIKTOK_API, or TIKTOK_SHOP_API_KEY.
           </p>
-          {provider ? <p>Active provider: {provider}</p> : null}
+        </div>
+      ) : !snapshot ? (
+        <div className="rounded-lg border border-dashed border-border p-4 text-xs text-muted-foreground">
+          <p>Fetching TikTok data for this keyword… Try live refresh if results stay empty.</p>
         </div>
       ) : null}
 
@@ -173,7 +174,7 @@ export function TikTokIntelPanel({
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">
-          No TikTok data cached yet. Run ingest or refresh live when configured.
+          No TikTok data yet for this keyword. Try another search or refresh live when available.
         </p>
       )}
 

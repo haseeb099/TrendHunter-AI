@@ -40,6 +40,7 @@ import {
   DEFAULT_WEIGHTS,
   RANKING_VERSION,
   RANKING_WEIGHT_KEYS,
+  normalizeRankingWeights,
   type RankingWeights,
 } from "@shared/ranking";
 
@@ -155,8 +156,10 @@ export const adminRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
 
-      const weights = { ...DEFAULT_WEIGHTS, ...input.weights };
+      const weights = normalizeRankingWeights({ ...DEFAULT_WEIGHTS, ...input.weights });
       const region = input.region ?? null;
+
+      let previousWeights: RankingWeights | null = null;
 
       if (input.id != null) {
         const existing = await db
@@ -167,6 +170,7 @@ export const adminRouter = router({
         if (!existing[0]) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Ranking config not found" });
         }
+        previousWeights = parseRankingWeights(existing[0].weights);
 
         await db
           .update(rankingConfigs)
@@ -183,6 +187,8 @@ export const adminRouter = router({
           version: input.version,
           region,
           isActive: input.isActive,
+          previousWeights,
+          newWeights: weights,
         });
 
         return { id: input.id, weights, version: input.version, region, isActive: input.isActive };
@@ -385,16 +391,30 @@ export const adminRouter = router({
     }),
 
   deleteUser: adminProcedure
-    .input(z.object({ userId: z.number().int() }))
+    .input(
+      z.object({
+        userId: z.number().int(),
+        confirmEmail: z.string().email(),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       if (input.userId === ctx.user.id) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot delete yourself" });
       }
       const user = await getUserById(input.userId);
       if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+      if (!user.email || user.email.toLowerCase() !== input.confirmEmail.toLowerCase()) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Confirmation email does not match the user account.",
+        });
+      }
 
       await audit(ctx.user.id, input.userId, "delete_user", {
         email: user.email,
+        planId: user.planId,
+        planStatus: user.planStatus,
+        accountStatus: user.accountStatus,
       });
       await deleteUserCompletely(input.userId);
       return { success: true };

@@ -16,6 +16,7 @@ describe("searchCj", () => {
   });
 
   it("returns empty when CJ is not configured", async () => {
+    vi.resetModules();
     const cjSupplier = await import("../suppliers/cj");
     vi.mocked(cjSupplier.isCjApiConfigured).mockReturnValue(false);
 
@@ -24,7 +25,7 @@ describe("searchCj", () => {
 
     expect(results).toEqual([]);
     expect(cjSupplier.queryCjProducts).not.toHaveBeenCalled();
-  });
+  }, 15_000);
 
   it("maps CJ API products via normalizeProduct", async () => {
     const cjSupplier = await import("../suppliers/cj");

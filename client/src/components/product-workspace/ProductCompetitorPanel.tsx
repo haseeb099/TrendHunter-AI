@@ -30,13 +30,14 @@ export function ProductCompetitorPanel({ keyword, sourceUrl }: ProductCompetitor
   const [hasRun, setHasRun] = useState(false);
 
   const handleAnalyze = async () => {
-    if (!keyword.trim() || aiDisabled) return;
+    if ((!keyword.trim() && !sourceUrl?.trim()) || aiDisabled) return;
     try {
-      await analyzeMutation.mutateAsync({
-        keyword: keyword.trim(),
+      const result = await analyzeMutation.mutateAsync({
+        keyword: keyword.trim() || undefined,
         url: sourceUrl?.trim() || undefined,
       });
       setHasRun(true);
+      return result;
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Analysis failed");
     }

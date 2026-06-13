@@ -1,3 +1,7 @@
+/**
+ * Server entry point — Express + tRPC bootstrap.
+ * Implemented and updated by Cursor — June 13, 2026 (Notion B-02 hourly trial maintenance).
+ */
 import "dotenv/config";
 import * as Sentry from "@sentry/node";
 import express from "express";
@@ -17,6 +21,7 @@ import { registerOAuthRoutes } from "./oauthRoutes";
 import { registerIngestRoutes } from "./ingestRoutes";
 import { startIngestScheduler } from "../ingest/scheduler";
 import { expireStaleTrials } from "../plans";
+import { notifyTrialsEndingSoon } from "../notifications/lifecycleJobs";
 import { buildSitemapXml } from "../seo/sitemap";
 import { createLogger } from "./logger";
 
@@ -66,11 +71,16 @@ async function startServer() {
     }
   }
 
-  expireStaleTrials().catch((err) => log.warn("expireStaleTrials failed", { error: String(err) }));
-  const TRIAL_EXPIRY_INTERVAL_MS = 24 * 60 * 60 * 1000;
-  setInterval(() => {
+  const runTrialMaintenance = () => {
     expireStaleTrials().catch((err) => log.warn("expireStaleTrials failed", { error: String(err) }));
-  }, TRIAL_EXPIRY_INTERVAL_MS);
+    notifyTrialsEndingSoon().catch((err) =>
+      log.warn("notifyTrialsEndingSoon failed", { error: String(err) })
+    );
+  };
+
+  runTrialMaintenance();
+  const TRIAL_MAINTENANCE_INTERVAL_MS = 60 * 60 * 1000; // hourly (Notion B-02)
+  setInterval(runTrialMaintenance, TRIAL_MAINTENANCE_INTERVAL_MS);
 
   const app = express();
   const server = createServer(app);

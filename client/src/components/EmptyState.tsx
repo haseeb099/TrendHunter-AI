@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 
 type EmptyStateProps = {
@@ -11,6 +12,7 @@ type EmptyStateProps = {
     onClick: () => void;
   };
   className?: string;
+  children?: ReactNode;
 };
 
 export function EmptyState({
@@ -19,6 +21,7 @@ export function EmptyState({
   description,
   action,
   className,
+  children,
 }: EmptyStateProps) {
   return (
     <div
@@ -41,6 +44,7 @@ export function EmptyState({
           {action.label}
         </Button>
       ) : null}
+      {children}
     </div>
   );
 }

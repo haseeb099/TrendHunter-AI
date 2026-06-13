@@ -82,6 +82,22 @@ vi.mock("./ranking/scoreProduct", () => ({
   RANKING_VERSION: "v2",
 }));
 
+vi.mock("./planCatalog", () => ({
+  getPlatformSettings: vi.fn(async () => ({
+    strict_truth_mode: false,
+    self_serve_billing: true,
+  })),
+}));
+
+vi.mock("./truthMode", () => ({
+  allowsHeuristicTrendScores: vi.fn(async () => true),
+  getStrictTruthMode: vi.fn(async () => false),
+}));
+
+vi.mock("./search/truthLabels", () => ({
+  attachProductsTruthLabels: vi.fn((products: ProductSearchResult[]) => products),
+}));
+
 
 
 describe("getTrendingFeed", () => {

@@ -5,7 +5,6 @@ import { KeywordExplorer } from "@/components/intelligence/KeywordExplorer";
 import { AdRadarPanel } from "@/components/intelligence/AdRadarPanel";
 import { MarketDigestCard } from "@/components/intelligence/MarketDigestCard";
 import { IntelligenceVerdict } from "@/components/intelligence/IntelligenceVerdict";
-import { DataCoverageBanner } from "@/components/intelligence/DataCoverageBanner";
 import { trpc } from "@/lib/trpc";
 import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -18,7 +17,6 @@ export default function AdRadarPage() {
   const [keyword, setKeyword] = useState("");
   const [activeKeyword, setActiveKeyword] = useState("");
 
-  const configQuery = trpc.system.getConfig.useQuery();
   const listQuery = trpc.intelligence.listAdKeywords.useQuery({ region });
   const intelQuery = trpc.intelligence.getProductIntel.useQuery(
     { keyword: activeKeyword, region },
@@ -36,8 +34,6 @@ export default function AdRadarPage() {
     if (reg) setRegion(reg as RegionCode);
   }, [location]);
 
-  const metaConfigured = configQuery.data?.dataPlatform?.metaAdsConfigured ?? false;
-
   return (
     <div className="space-y-8">
       <PageHeader
@@ -50,17 +46,6 @@ export default function AdRadarPage() {
           </span>
         }
       />
-
-      <DataCoverageBanner pageId="ad-radar" />
-
-      {!metaConfigured ? (
-        <Alert>
-          <AlertDescription>
-            Add <code className="text-xs">META_ACCESS_TOKEN</code> to your environment to enable
-            live Meta Ad Library scans. Cached data appears after daily ingest.
-          </AlertDescription>
-        </Alert>
-      ) : null}
 
       <div className="rounded-xl border border-border bg-muted/15 p-4 text-sm text-muted-foreground">
         <p>
@@ -130,7 +115,7 @@ export default function AdRadarPage() {
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
-              No ad snapshots cached yet. Configure Meta token and run ingest, or scan live (2 credits).
+              No ad data yet for this region. Search a keyword above or scan live (2 credits) for the latest results.
             </p>
           )}
         </section>

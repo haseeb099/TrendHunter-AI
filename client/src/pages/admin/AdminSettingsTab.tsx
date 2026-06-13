@@ -18,7 +18,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { Bell, Brain, CreditCard, Mail, Save, Settings2, Shield, Wrench, Eye } from "lucide-react";
 import { toast } from "sonner";
-import { ProviderStatusBar } from "@/components/intelligence/ProviderStatusBar";
+import { MarketplaceCoverageBar } from "@/components/intelligence/MarketplaceCoverageBar";
+import { DataCoverageBanner } from "@/components/intelligence/DataCoverageBanner";
 
 export default function AdminSettingsTab() {
   const utils = trpc.useUtils();
@@ -108,7 +109,8 @@ export default function AdminSettingsTab() {
         <p className="text-xs text-muted-foreground">
           Live search and intel providers — configure keys in environment variables.
         </p>
-        <ProviderStatusBar />
+        <MarketplaceCoverageBar />
+        <DataCoverageBanner />
       </div>
 
       <div className="admin-settings-group">

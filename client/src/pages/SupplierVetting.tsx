@@ -26,8 +26,10 @@ import {
   ExternalLink,
   LayoutGrid,
   Users,
+  Globe,
+  Home,
 } from "lucide-react";
-import { PRODUCT_CATEGORIES } from "@shared/searchTypes";
+import { PRODUCT_CATEGORIES, CATEGORY_LABELS } from "@shared/searchTypes";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Spinner } from "@/components/ui/spinner";
@@ -38,6 +40,23 @@ function reliabilityBadgeClass(score: number): string {
   if (score >= 80) return "bg-success/10 text-success border-success/20";
   if (score >= 50) return "bg-warning/10 text-warning border-warning/20";
   return "bg-destructive/10 text-destructive border-destructive/20";
+}
+
+const DISCOVER_PLATFORMS = new Set(["cj", "aliexpress"]);
+
+function catalogDiscoverUrl(entry: {
+  platform: string;
+  category: string;
+  subcategory?: string | null;
+}): string | null {
+  if (!DISCOVER_PLATFORMS.has(entry.platform)) return null;
+  const q = entry.subcategory ?? entry.category;
+  const params = new URLSearchParams({
+    platform: entry.platform,
+    live: "true",
+    q,
+  });
+  return `${getDashboardPath("search")}?${params.toString()}`;
 }
 
 export default function SupplierVetting() {
@@ -55,7 +74,6 @@ export default function SupplierVetting() {
   const [catalogCategory, setCatalogCategory] = useState<string | undefined>();
 
   const suppliersQuery = trpc.supplier.getSuppliers.useQuery();
-  const offersStatus = trpc.supplier.getOffersStatus.useQuery();
   const catalogQuery = trpc.supplier.getCatalog.useQuery({ category: catalogCategory });
 
   const createMutation = trpc.supplier.createSupplier.useMutation({
@@ -136,7 +154,7 @@ export default function SupplierVetting() {
     <div className="space-y-8">
       <PageHeader
         title="Suppliers"
-        description="Browse CJ and AliExpress category coverage, or track contacts you vet manually."
+        description="18 wholesale and dropship marketplaces from China, the US, EU, and Southeast Asia — with direct links to browse each supplier."
         actions={
           view === "contacts" ? (
             <Button onClick={openCreate}>
@@ -160,57 +178,13 @@ export default function SupplierVetting() {
         </TabsList>
 
         <TabsContent value="directory" className="mt-6 space-y-4">
-          {offersStatus.isLoading ? (
-            <div className="card-elevated p-4 flex items-center gap-2 text-sm text-muted-foreground">
-              <Spinner className="w-4 h-4" />
-              Checking supplier API status…
-            </div>
-          ) : offersStatus.data ? (
-            <div className="card-elevated p-4 space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge
-                  variant={offersStatus.data.cj.configured ? "secondary" : "outline"}
-                  className="gap-1.5 py-1"
-                >
-                  <Truck className="w-3 h-3" />
-                  CJ: {offersStatus.data.cj.configured ? "live API" : "catalog only"}
-                </Badge>
-                <Badge
-                  variant={offersStatus.data.aliexpress.configured ? "secondary" : "outline"}
-                  className="gap-1.5 py-1"
-                >
-                  <Truck className="w-3 h-3" />
-                  AliExpress:{" "}
-                  {offersStatus.data.aliexpress.configured ? "live API" : "catalog only"}
-                </Badge>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {offersStatus.data.cj.configured ? (
-                  <Button size="sm" variant="outline" asChild>
-                    <a href={`${getDashboardPath("search")}?platform=cj&live=true`}>
-                      Search CJ in Discover
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </a>
-                  </Button>
-                ) : null}
-                {offersStatus.data.aliexpress.configured ? (
-                  <Button size="sm" variant="outline" asChild>
-                    <a href={`${getDashboardPath("search")}?platform=aliexpress&live=true`}>
-                      Search AliExpress in Discover
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </a>
-                  </Button>
-                ) : null}
-              </div>
-              {!offersStatus.data.cj.configured && !offersStatus.data.aliexpress.configured ? (
-                <p className="text-xs text-muted-foreground">
-                  Add CJ or AliExpress API keys to enable live product discovery from the supplier
-                  directory.
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-
+          <p className="text-sm text-muted-foreground">
+            {catalogQuery.data?.length ?? 0} suppliers
+            {catalogCategory
+              ? ` for ${CATEGORY_LABELS[catalogCategory as keyof typeof CATEGORY_LABELS]}`
+              : " worldwide"}
+            . Filter by niche or open any supplier to browse their catalog.
+          </p>
           <div className="flex flex-wrap gap-2">
             <Button
               size="sm"
@@ -225,9 +199,8 @@ export default function SupplierVetting() {
                 size="sm"
                 variant={catalogCategory === cat ? "default" : "outline"}
                 onClick={() => setCatalogCategory(cat)}
-                className="capitalize"
               >
-                {cat}
+                {CATEGORY_LABELS[cat]}
               </Button>
             ))}
           </div>
@@ -237,58 +210,136 @@ export default function SupplierVetting() {
               <Spinner className="w-8 h-8" />
             </div>
           ) : catalogQuery.data && catalogQuery.data.length > 0 ? (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {catalogQuery.data.map((entry) => (
-                <article key={entry.id} className="card-elevated p-4">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {catalogQuery.data.map((entry) => {
+                const discoverUrl = catalogDiscoverUrl(entry);
+                return (
+                <article key={entry.id} className="card-elevated p-4 flex flex-col">
                   <div className="flex items-start justify-between gap-2 mb-2">
-                    <div>
-                      <p className="font-medium capitalize">{entry.platform}</p>
-                      <p className="text-sm text-muted-foreground capitalize">
-                        {entry.category}
-                        {entry.subcategory ? ` · ${entry.subcategory}` : ""}
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{entry.name}</p>
+                      <p className="text-sm text-muted-foreground flex items-center gap-1 mt-0.5">
+                        <Globe className="w-3.5 h-3.5 shrink-0" />
+                        {entry.origin}
+                        {entry.apiIntegrated ? (
+                          <Badge variant="secondary" className="ml-1 text-[10px] px-1.5 py-0">
+                            API
+                          </Badge>
+                        ) : null}
                       </p>
                     </div>
-                    <Badge variant="outline">{entry.coverageScore}% coverage</Badge>
+                    <Badge variant="outline">{entry.coverageScore}% match</Badge>
                   </div>
-                  {entry.notes ? (
-                    <p className="text-xs text-muted-foreground mb-3">{entry.notes}</p>
+
+                  {!catalogCategory && entry.categories !== "all" && Array.isArray(entry.categories) ? (
+                    <div className="flex flex-wrap gap-1 mb-2">
+                      {entry.categories.slice(0, 4).map((cat) => (
+                        <Badge key={cat} variant="outline" className="text-[10px] font-normal capitalize">
+                          {CATEGORY_LABELS[cat as keyof typeof CATEGORY_LABELS] ?? cat}
+                        </Badge>
+                      ))}
+                      {entry.categories.length > 4 ? (
+                        <Badge variant="outline" className="text-[10px] font-normal">
+                          +{entry.categories.length - 4}
+                        </Badge>
+                      ) : null}
+                    </div>
+                  ) : !catalogCategory && entry.categories === "all" ? (
+                    <Badge variant="outline" className="text-[10px] font-normal w-fit mb-2">
+                      All categories
+                    </Badge>
                   ) : null}
-                  {entry.searchUrl ? (
+
+                  {catalogCategory ? (
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Browsing: {CATEGORY_LABELS[catalogCategory as keyof typeof CATEGORY_LABELS]}
+                    </p>
+                  ) : null}
+
+                  {entry.regions && entry.regions.length > 0 ? (
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Ships to {entry.regions.join(", ")}
+                    </p>
+                  ) : null}
+
+                  {entry.notes ? (
+                    <p className="text-xs text-muted-foreground mb-3 leading-relaxed">{entry.notes}</p>
+                  ) : null}
+
+                  {entry.samples && entry.samples.length > 0 ? (
+                    <div className="mb-3 space-y-2">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                        Live samples
+                      </p>
+                      <ul className="space-y-1.5">
+                        {entry.samples.map((sample) => (
+                          <li key={sample.url}>
+                            <a
+                              href={sample.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm text-primary hover:underline inline-flex items-start gap-1.5"
+                            >
+                              <ExternalLink className="w-3 h-3 mt-0.5 shrink-0" />
+                              <span className="line-clamp-2">
+                                {sample.title}
+                                {sample.price != null ? (
+                                  <span className="text-muted-foreground ml-1">
+                                    · ${sample.price.toFixed(2)}
+                                  </span>
+                                ) : null}
+                              </span>
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : catalogCategory && entry.apiIntegrated ? (
+                    <p className="text-xs text-muted-foreground mb-3">
+                      Connect {entry.name} API keys in admin settings to load live product links here.
+                    </p>
+                  ) : null}
+
+                  <div className="mt-auto flex flex-wrap gap-2">
                     <Button size="sm" variant="outline" asChild>
-                      <a href={entry.searchUrl} target="_blank" rel="noopener noreferrer">
-                        Browse catalog
-                        <ExternalLink className="w-3.5 h-3.5" />
+                      <a href={entry.homepageUrl} target="_blank" rel="noopener noreferrer">
+                        <Home className="w-3.5 h-3.5" />
+                        Website
                       </a>
                     </Button>
-                  ) : null}
+                    {entry.searchUrl ? (
+                      <Button size="sm" variant="outline" asChild>
+                        <a href={entry.searchUrl} target="_blank" rel="noopener noreferrer">
+                          Browse catalog
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      </Button>
+                    ) : null}
+                    {discoverUrl ? (
+                      <Button size="sm" variant="ghost" onClick={() => setLocation(discoverUrl)}>
+                        Search in Discover
+                      </Button>
+                    ) : null}
+                  </div>
                 </article>
-              ))}
+              );
+              })}
             </div>
           ) : (
             <EmptyState
               icon={Package}
-              title="No catalog entries"
-              description="Run the supplier_catalog migration to seed CJ and AliExpress category rows."
+              title="No suppliers for this category"
+              description="Try another niche or view all suppliers to browse the full directory."
             />
           )}
         </TabsContent>
 
         <TabsContent value="contacts" className="mt-6 space-y-4">
-      {offersStatus.data ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline" className="gap-1.5 py-1">
-            <Truck className="w-3 h-3" />
-            CJ: {offersStatus.data.cj.mode}
-          </Badge>
-          <Badge variant="outline" className="gap-1.5 py-1">
-            <Truck className="w-3 h-3" />
-            AliExpress: {offersStatus.data.aliexpress.mode}
-          </Badge>
-          <span className="text-xs text-muted-foreground">
-            {supplierCount} contacts · {vettedCount} samples ordered
-          </span>
-        </div>
-      ) : null}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-muted-foreground">
+          {supplierCount} contacts · {vettedCount} samples ordered
+        </span>
+      </div>
 
       {suppliersQuery.isLoading ? (
         <div className="flex justify-center py-16">

@@ -26,6 +26,9 @@ const PROBES: Probe[] = [
   { name: "News API top", host: "news-api14.p.rapidapi.com", path: "/v2/top-headlines?language=en" },
   { name: "News API everything", host: "news-api14.p.rapidapi.com", path: "/v2/everything?query=dropshipping" },
   { name: "Google News v2", host: "google-news-api1.p.rapidapi.com", path: "/search?q=dropshipping" },
+  { name: "TikTok Scraper user feed", host: "tiktok-api-fast-reliable-data-scraper.p.rapidapi.com", path: "/user/feed?username=khaby.lame&count=5" },
+  { name: "Tiktok API search video", host: "tiktok-api23.p.rapidapi.com", path: "/api/search/video?keyword=wireless+earbuds&count=5" },
+  { name: "Tiktok API user info", host: "tiktok-api23.p.rapidapi.com", path: "/api/user/info?uniqueId=khaby.lame" },
 ];
 
 async function probe(p: Probe) {

@@ -30,6 +30,8 @@ const STATE_META: Record<
   cached: { label: "Cached", variant: "secondary", Icon: Database },
   stale: { label: "Stale cache", variant: "outline", Icon: AlertTriangle },
   synthetic: { label: "Demo catalog data", variant: "outline", Icon: Database },
+  estimated: { label: "Estimated", variant: "outline", Icon: Sparkles },
+  missing: { label: "Missing", variant: "destructive", Icon: Ban },
   unavailable: { label: "Unavailable", variant: "destructive", Icon: Ban },
 };
 
@@ -47,7 +49,7 @@ export function DataFreshnessBadge({
 }: DataFreshnessBadgeProps) {
   const state =
     stateProp ??
-    resolveDataState({ dataMode, stale, synthetic, unavailable });
+    resolveDataState({ dataMode, stale, synthetic, unavailable, inferredScores });
 
   const meta =
     state === "synthetic" && inferredScores

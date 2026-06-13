@@ -1,4 +1,6 @@
 import type { AdLibrarySnapshot, AdLibraryCreative } from "@shared/intelligenceTypes";
+import type { IntelFetchOptions } from "@shared/intelFetch";
+import { createLogger } from "../_core/logger";
 import { ENV } from "../_core/env";
 import { and, desc, eq, gt } from "drizzle-orm";
 import { adLibrarySnapshots } from "../../drizzle/schema";
@@ -9,6 +11,8 @@ import {
   recordProviderApiCall,
 } from "../dataPlatform/providerBudget";
 import { wrapProviderCall } from "../_core/providerHealth";
+
+const log = createLogger("intel.ads");
 
 const REGION_COUNTRY: Record<string, string> = {
   US: "US",
@@ -208,15 +212,16 @@ function rowToSnapshot(
 export async function getAdLibrarySnapshot(
   keyword: string,
   region: string,
-  options?: { live?: boolean }
+  options?: IntelFetchOptions
 ): Promise<AdLibrarySnapshot | null> {
   const kw = keyword.trim().toLowerCase();
   if (!kw) return null;
 
   const db = await getDb();
   const now = new Date();
+  let cached: AdLibrarySnapshot | null = null;
 
-  if (db && !options?.live) {
+  if (!options?.live && db) {
     const rows = await db
       .select()
       .from(adLibrarySnapshots)
@@ -230,14 +235,37 @@ export async function getAdLibrarySnapshot(
       .orderBy(desc(adLibrarySnapshots.fetchedAt))
       .limit(1);
 
-    if (rows[0]) return rowToSnapshot(rows[0]);
+    if (rows[0]) cached = rowToSnapshot(rows[0]);
   }
 
-  if (options?.live) {
-    const live = await fetchMetaAdsLive(kw, region);
-    if (live) {
-      await saveAdLibrarySnapshot(live);
-      return live;
+  if (cached) return cached;
+
+  if (options?.live || options?.warm) {
+    const started = Date.now();
+    try {
+      const fetched = await fetchMetaAdsLive(kw, region);
+      if (fetched) {
+        await saveAdLibrarySnapshot(fetched);
+        return fetched;
+      }
+      log.warn("fetch_empty", {
+        provider: "meta_ads",
+        keyword: kw,
+        region,
+        live: Boolean(options?.live),
+        warm: Boolean(options?.warm),
+        latencyMs: Date.now() - started,
+      });
+    } catch (err) {
+      log.warn("fetch_failed", {
+        provider: "meta_ads",
+        keyword: kw,
+        region,
+        live: Boolean(options?.live),
+        warm: Boolean(options?.warm),
+        latencyMs: Date.now() - started,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

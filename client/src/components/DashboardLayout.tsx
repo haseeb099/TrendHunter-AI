@@ -42,8 +42,10 @@ import { CSSProperties } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { WorkspaceQuickStats } from "@/components/workspace/WorkspaceQuickStats";
+import { OnboardingChecklist } from "@/components/onboarding/OnboardingChecklist";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { Button } from "./ui/button";
+import { cn } from "@/lib/utils";
 
 export default function DashboardLayout({
   children,
@@ -113,7 +115,7 @@ export default function DashboardLayout({
 
   return (
     <SidebarProvider
-      className="h-svh overflow-hidden"
+      className="flex h-svh min-h-0 w-full overflow-hidden"
       style={
         {
           "--sidebar-width": "16.25rem",
@@ -164,7 +166,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
           </div>
         </SidebarHeader>
 
-        <SidebarContent className="gap-0.5 py-4">
+        <SidebarContent className="gap-0.5 overflow-y-auto py-4">
           {dashboardNavGroups.map((group) => (
             <SidebarGroup key={group.label} className="px-2">
               {!isCollapsed ? (
@@ -272,7 +274,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         <SidebarRail />
       </Sidebar>
 
-      <SidebarInset className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+      <SidebarInset className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col overflow-hidden bg-background">
         <header className="sticky top-0 z-30 flex h-[3.75rem] shrink-0 items-center gap-3 border-b border-border bg-background/92 px-4 backdrop-blur-xl sm:px-6">
           {isMobile ? <SidebarTrigger className="h-8 w-8" /> : null}
           <div className="min-w-0 flex-1">
@@ -300,14 +302,20 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
             ) : null}
           </button>
           <CreditBalance />
+          <OnboardingChecklist />
           <WorkspaceQuickStats enabled={quickStatsEnabled} />
           <ThemeToggle />
         </header>
 
-        <main className="workspace-canvas flex-1 overflow-y-auto">
+        <main
+          className={cn(
+            "workspace-canvas flex min-h-0 flex-1 basis-0 flex-col",
+            activeTab === "agent" ? "overflow-hidden" : "overflow-y-auto"
+          )}
+        >
           {announcement?.message ? (
             <div
-              className={`border-b px-4 py-2.5 text-center text-sm ${
+              className={`shrink-0 border-b px-4 py-2.5 text-center text-sm ${
                 announcement.type === "warning"
                   ? "border-warning/30 bg-warning/10 text-warning"
                   : announcement.type === "success"
@@ -319,19 +327,25 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
             </div>
           ) : null}
           {user?.accountStatus === "paused" ? (
-            <div className="border-b border-warning/30 bg-warning/10 px-4 py-2.5 text-center text-sm text-warning">
+            <div className="shrink-0 border-b border-warning/30 bg-warning/10 px-4 py-2.5 text-center text-sm text-warning">
               Your account is paused. You can view plans & billing — contact support if you need help.
             </div>
           ) : null}
           {user?.accountStatus === "flagged" ? (
-            <div className="border-b border-warning/30 bg-warning/10 px-4 py-2.5 text-center text-sm text-warning">
+            <div className="shrink-0 border-b border-warning/30 bg-warning/10 px-4 py-2.5 text-center text-sm text-warning">
               Your account is under review — workspace access is limited to billing and account settings.
               {user.flagReason ? (
                 <span className="block text-xs mt-1 text-warning/90">Reason: {user.flagReason}</span>
               ) : null}
             </div>
           ) : null}
-          <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8 fade-up">
+          <div
+            className={cn(
+              activeTab === "agent"
+                ? "flex min-h-0 flex-1 basis-0 flex-col overflow-hidden"
+                : "mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8 fade-up"
+            )}
+          >
             {showMaintenanceBlock ? (
               <div className="card-elevated max-w-lg mx-auto p-8 text-center space-y-4">
                 <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-muted/60">

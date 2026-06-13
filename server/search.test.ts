@@ -89,8 +89,24 @@ vi.mock("./_core/providerHealth", () => ({
   getProviderState: vi.fn(async () => "healthy"),
 }));
 
-vi.mock("./_core/providerHealth", () => ({
-  getProviderState: vi.fn(async () => "healthy"),
+vi.mock("./planCatalog", () => ({
+  getPlatformSettings: vi.fn(async () => ({
+    strict_truth_mode: false,
+    self_serve_billing: true,
+  })),
+  getPlanCatalog: vi.fn(async () => ({})),
+}));
+
+vi.mock("./truthMode", () => ({
+  allowsSyntheticCatalog: vi.fn(async () => true),
+  allowsHeuristicTrendScores: vi.fn(async () => true),
+  getStrictTruthMode: vi.fn(async () => false),
+  isFreeRetailAllowed: vi.fn(async () => false),
+  isDemoMode: vi.fn(() => false),
+}));
+
+vi.mock("./search/truthLabels", () => ({
+  attachProductsTruthLabels: vi.fn((products: ProductSearchResult[]) => products),
 }));
 
 describe("search utils", () => {

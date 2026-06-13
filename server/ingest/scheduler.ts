@@ -4,6 +4,7 @@ import { runDailyIngest } from "./daily";
 import { runFreeProviderIngestCycle } from "./freeProviderCycle";
 import { runSerperIngestCycle } from "./serperCycle";
 import { runTrendingIngestCycle } from "./trendingCycle";
+import { warmAllSupportedRegions } from "../intelligence/intelWarm";
 
 const log = createLogger("ingest-scheduler");
 
@@ -82,6 +83,7 @@ export function startIngestScheduler(): void {
 
   setTimeout(() => {
     void runScheduledTrending("startup");
+    void warmAllSupportedRegions({ background: true });
   }, startupDelayMs);
 
   trendingIntervalHandle = setInterval(() => {

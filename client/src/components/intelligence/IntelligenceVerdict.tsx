@@ -16,11 +16,15 @@ type Verdict = {
 };
 
 function computeVerdict(summary: ProductIntelligenceSummary | null | undefined): Verdict {
-  if (!summary?.trendLabel && summary?.activeAdCount == null) {
+  if (
+    !summary?.trendLabel &&
+    summary?.activeAdCount == null &&
+    summary?.tiktokActiveAdCount == null
+  ) {
     return {
       label: "No data yet",
       tone: "muted",
-      summary: "Run daily ingest or search a keyword to load Google Trends and Meta ad data.",
+      summary: "Search a keyword to load Google Trends, Meta ads, and TikTok intel.",
       icon: HelpCircle,
     };
   }
@@ -28,9 +32,10 @@ function computeVerdict(summary: ProductIntelligenceSummary | null | undefined):
   const rising = summary.trendLabel === "rising";
   const declining = summary.trendLabel === "declining";
   const ads = summary.activeAdCount ?? 0;
+  const tiktok = summary.tiktokActiveAdCount ?? 0;
   const score = summary.trendMomentum ?? 50;
 
-  if (rising && ads < 12) {
+  if (rising && ads < 12 && tiktok < 20) {
     return {
       label: "Strong opportunity",
       tone: "success",

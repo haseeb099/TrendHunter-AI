@@ -13,7 +13,8 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import type { RegionCode } from "@shared/searchTypes";
-import type { TrendWindow } from "@shared/intelligenceTypes";
+import type { TrendSignal, TrendWindow } from "@shared/intelligenceTypes";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { DataFreshnessBadge } from "./DataFreshnessBadge";
 import { TrendWindowSelector } from "./TrendWindowSelector";
 import { useTrendWindow } from "@/_core/hooks/useTrendWindow";
@@ -25,6 +26,8 @@ type TrendPulsePanelProps = {
   compact?: boolean;
   timeframe?: TrendWindow;
   onTimeframeChange?: (window: TrendWindow) => void;
+  /** Preloaded signal from competitor analysis or parent page */
+  seedSignal?: TrendSignal | null;
 };
 
 function TrendIcon({ label }: { label?: string | null }) {
@@ -52,6 +55,7 @@ export function TrendPulsePanel({
   compact = false,
   timeframe: controlledTimeframe,
   onTimeframeChange,
+  seedSignal,
 }: TrendPulsePanelProps) {
   const { window: storedWindow, setWindow: setStoredWindow } = useTrendWindow();
   const timeframe = controlledTimeframe ?? storedWindow;
@@ -63,7 +67,7 @@ export function TrendPulsePanel({
     { enabled: Boolean(keyword.trim()) }
   );
 
-  const signal = query.data?.signal;
+  const signal = query.data?.signal ?? seedSignal ?? undefined;
   const [refreshing, setRefreshing] = useState(false);
   const changePercent = signal ? changeForWindow(signal, timeframe) : null;
 
@@ -93,7 +97,7 @@ export function TrendPulsePanel({
     return <p className="text-sm text-muted-foreground">Enter a product or keyword to see trends.</p>;
   }
 
-  if (query.isLoading) {
+  if (query.isLoading && !seedSignal) {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
         <Spinner className="w-4 h-4" />
@@ -102,13 +106,24 @@ export function TrendPulsePanel({
     );
   }
 
+  if (query.error && !signal) {
+    return (
+      <Alert variant="destructive">
+        <AlertDescription>{query.error.message}</AlertDescription>
+      </Alert>
+    );
+  }
+
   if (!signal) {
+    const configured = query.data?.configured ?? true;
     return (
       <div className="space-y-3 py-2">
         <p className="text-sm text-muted-foreground">
-          No trend data yet. Daily ingest will populate this, or refresh live (1 credit).
+          {!configured
+            ? "Google Trends API not configured — add SERPAPI_KEY, SERPER_API_KEY, or JUSTSERP_API_KEY in your environment."
+            : "Fetching trend data for this keyword… If nothing appears, refresh live (1 credit)."}
         </p>
-        <Button size="sm" variant="outline" onClick={handleLiveRefresh} disabled={refreshing}>
+        <Button size="sm" variant="outline" onClick={handleLiveRefresh} disabled={refreshing || !configured}>
           <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
           Live refresh (1 credit)
         </Button>

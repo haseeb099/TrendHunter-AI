@@ -8,6 +8,7 @@ import type { TrendWindow } from "@shared/intelligenceTypes";
 import { paginateResults } from "../search/pagination";
 import { ENV } from "../_core/env";
 import { getValidTrendingSnapshot, getStaleTrendingSnapshot } from "../db";
+import { listCatalogByRegion } from "../dataPlatform/catalog";
 import { applyProductHuntFilters } from "../search/filters";
 import { dedupeResults } from "../search/utils";
 import { enrichTrendingResults } from "./rankReason";
@@ -15,6 +16,34 @@ import { scoreProducts } from "../ranking/scoreProduct";
 import { attachProductsTruthLabels } from "../search/truthLabels";
 import { allowsHeuristicTrendScores } from "../truthMode";
 import { REGION_FALLBACK_CHAIN, fallbackWarning, type SnapshotFallbackReason } from "./regionFallback";
+
+const DISCOVER_MIN_PRODUCTS = 24;
+
+async function enrichTrendingPayload(
+  payload: ProductSearchResponse["results"],
+  region: RegionCode,
+  category?: string
+): Promise<{ results: ProductSearchResponse["results"]; supplemented: boolean }> {
+  if (payload.length >= DISCOVER_MIN_PRODUCTS) {
+    return { results: payload, supplemented: false };
+  }
+
+  const catalog = await listCatalogByRegion(region, category, DISCOVER_MIN_PRODUCTS * 2);
+  if (catalog.length === 0) {
+    return { results: payload, supplemented: false };
+  }
+
+  const existing = new Set(payload.map((p) => `${p.platform}-${p.id}`));
+  const extras = catalog.filter((p) => !existing.has(`${p.platform}-${p.id}`));
+  if (extras.length === 0) {
+    return { results: payload, supplemented: false };
+  }
+
+  return {
+    results: dedupeResults([...payload, ...extras]),
+    supplemented: true,
+  };
+}
 
 async function applyTrendingFilters(
   results: ProductSearchResponse["results"],
@@ -33,6 +62,7 @@ async function applyTrendingFilters(
     items = await scoreProducts(items, region ?? (ENV.defaultRegion as RegionCode), {
       forceTrending: true,
       allowHeuristicScores: allowHeuristic,
+      fetchLiveIntel: false,
       timeframe,
     });
   } catch (err) {
@@ -69,8 +99,12 @@ export async function getTrendingFeed(options: {
     sources: ProductSearchResponse["sources"],
     meta: Pick<ProductSearchResponse, "cachedAt" | "stale" | "warnings">
   ) => {
+    const enriched = await enrichTrendingPayload(payload, region, category);
+    const mergedSources = enriched.supplemented
+      ? ([...sources, "catalog"] as ProductSearchResponse["sources"])
+      : sources;
     const page = await applyTrendingFilters(
-      payload,
+      enriched.results,
       filters,
       region,
       options.timeframe,
@@ -80,11 +114,18 @@ export async function getTrendingFeed(options: {
       results: page.items,
       totalCount: page.totalCount,
       nextCursor: page.nextCursor,
-      sources,
+      sources: mergedSources,
       isDemo: false as const,
       dataMode: "cached" as const,
       creditsUsed: 0,
-      ...meta,
+      warnings: enriched.supplemented
+        ? [
+            ...(meta.warnings ?? []),
+            "Expanded with cached catalog products while trending ingest catches up.",
+          ]
+        : meta.warnings,
+      cachedAt: meta.cachedAt,
+      stale: meta.stale,
     };
   };
 

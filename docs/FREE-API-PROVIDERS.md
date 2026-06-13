@@ -47,6 +47,8 @@ All RapidAPI providers use one `RAPIDAPI_KEY` with **separate monthly caps** per
 | Google Search | 1000 | `/?query=` | Discovery URLs / niches |
 | Etsy API | 45 | `/product/search` | Handmade niche products |
 | Pangolinfo Amazon | 60 | `/` | Amazon scraper (if subscribed) |
+| TikTok Scraper (MediaCrawlers) | 100 | `/user/feed` | User media feed by username |
+| Tiktok API (Tikfly) | 100 | `/api/search/video`, `/api/user/oldest-posts` | Keyword video search + oldest posts |
 | Lazada DataHub | 50 | `/item_search_image` | SEA supplier matches by image |
 | Taobao DataHub | 50 | `/itemidstr_convert` | On-demand ID utility only |
 | Alibaba API | 50 | `/alibaba/health-check` | Health probe (search disabled on free tier) |
@@ -128,6 +130,8 @@ RAPIDAPI_PANGOLINFO_MONTHLY_CAP=60
 RAPIDAPI_LAZADA_MONTHLY_CAP=50
 RAPIDAPI_TAOBAO_MONTHLY_CAP=50
 RAPIDAPI_ALIBABA_MONTHLY_CAP=50
+RAPIDAPI_TIKTOK_SCRAPER_MONTHLY_CAP=100
+RAPIDAPI_TIKTOK_API_MONTHLY_CAP=100
 
 # Serper multi-account pool
 SERPER_API_KEY=

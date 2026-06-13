@@ -1,3 +1,7 @@
+/**
+ * Stripe webhook handlers.
+ * Implemented and updated by Cursor — June 13, 2026 (Notion S9 payment-failed email).
+ */
 import type { Request, Response } from "express";
 import type Stripe from "stripe";
 import type { PlanId } from "@shared/plans";
@@ -9,8 +13,10 @@ import {
   getUserById,
   isStripeWebhookProcessed,
   markStripeWebhookProcessed,
+  markStripeDiscountConsumed,
   updateUserSubscription,
 } from "./db";
+import { sendPaymentFailedEmail } from "./notifications/lifecycleEmails";
 
 function planIdFromMetadata(value: string | undefined): PlanId | null {
   const allowed: readonly string[] = ["starter", "pro", "business", "agency"];
@@ -106,6 +112,11 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session): Promis
     stripeCustomerId: customerId ?? user.stripeCustomerId,
     stripeSubscriptionId: subscriptionId,
   });
+
+  const discounts = session.total_details?.amount_discount;
+  if (discounts && discounts > 0) {
+    await markStripeDiscountConsumed(userId, session.id);
+  }
 }
 
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription): Promise<void> {
@@ -174,6 +185,23 @@ function invoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
   return typeof subscriptionRef === "string" ? subscriptionRef : subscriptionRef.id ?? null;
 }
 
+async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
+  const subscriptionId = invoiceSubscriptionId(invoice);
+  if (!subscriptionId) return;
+
+  const stripe = getStripeClient();
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+  const userId = Number(subscription.metadata?.userId);
+  if (!userId) return;
+
+  const pricePlanId = planIdFromStripePrice(subscriptionPriceId(subscription));
+  await updateUserSubscription(userId, {
+    ...(pricePlanId ? { planId: pricePlanId } : {}),
+    planStatus: "active",
+    stripeSubscriptionId: subscription.id,
+  });
+}
+
 async function handleInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
   const subscriptionId = invoiceSubscriptionId(invoice);
   if (!subscriptionId) return;
@@ -188,10 +216,17 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<void
     return;
   }
 
+  const user = await getUserById(userId);
+  if (!user) return;
+
   await updateUserSubscription(userId, {
     planStatus: "expired",
     stripeSubscriptionId: subscription.id,
   });
+
+  if (user.email) {
+    void sendPaymentFailedEmail(user.email, user.name ?? user.email.split("@")[0] ?? "there");
+  }
 }
 
 export async function handleStripeWebhook(req: Request, res: Response): Promise<void> {
@@ -239,6 +274,9 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
         break;
       case "invoice.payment_failed":
         await handleInvoicePaymentFailed(event.data.object as Stripe.Invoice);
+        break;
+      case "invoice.payment_succeeded":
+        await handleInvoicePaymentSucceeded(event.data.object as Stripe.Invoice);
         break;
       default:
         break;

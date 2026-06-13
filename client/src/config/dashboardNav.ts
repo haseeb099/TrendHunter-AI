@@ -128,7 +128,7 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
       {
         id: "agent",
         label: "AI Agent",
-        description: "Research advisor chat",
+        description: "Scoped e-commerce research chat",
         icon: MessageSquare,
         requiredFeature: "agent",
       },

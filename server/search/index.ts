@@ -138,6 +138,8 @@ export async function searchProducts(
 
         allowHeuristicScores: allowHeuristic,
 
+        fetchLiveIntel: true,
+
       });
 
       const enriched = attachRankReasons(scored);

@@ -1,6 +1,8 @@
 import type { RegionCode } from "@shared/searchTypes";
 import type { TrendSignal, TrendWindow } from "@shared/intelligenceTypes";
+import type { IntelFetchOptions } from "@shared/intelFetch";
 import { ENV } from "../_core/env";
+import { createLogger } from "../_core/logger";
 import { isSerpApiConfigured, isSerpConfigured } from "../search/serpapi";
 import { isJustSerpConfigured, fetchGoogleTrendsJustSerp } from "../search/justserp";
 import { isSerperConfigured, getSerperRelatedQueries, searchNewsSerper } from "../search/serper";
@@ -9,6 +11,8 @@ import { desc, and, eq, gt } from "drizzle-orm";
 import { trendSignals } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { canUseProviderToday, incrementDailyApiUsage } from "../dataPlatform/apiUsage";
+
+const log = createLogger("intel.trends");
 
 const REGION_GEO: Record<RegionCode, string> = {
   US: "US",
@@ -260,7 +264,7 @@ function rowToSignal(
 export async function getTrendSignal(
   keyword: string,
   region: RegionCode,
-  options?: { live?: boolean; timeframe?: TrendWindow }
+  options?: IntelFetchOptions
 ): Promise<TrendSignal | null> {
   const kw = keyword.trim().toLowerCase();
   if (!kw) return null;
@@ -292,11 +296,32 @@ export async function getTrendSignal(
     }
   }
 
-  if (!signal && options?.live) {
-    const live = await fetchGoogleTrendsLive(kw, region);
-    if (live) {
-      await saveTrendSignal(live);
-      signal = live;
+  if (!signal && (options?.live || options?.warm)) {
+    const started = Date.now();
+    try {
+      const fetched = await fetchGoogleTrendsLive(kw, region);
+      if (fetched) {
+        await saveTrendSignal(fetched);
+        signal = fetched;
+        log.info("fetch_ok", {
+          provider: "google_trends",
+          keyword: kw,
+          region,
+          live: Boolean(options?.live),
+          warm: Boolean(options?.warm),
+          latencyMs: Date.now() - started,
+        });
+      }
+    } catch (err) {
+      log.warn("fetch_failed", {
+        provider: "google_trends",
+        keyword: kw,
+        region,
+        live: Boolean(options?.live),
+        warm: Boolean(options?.warm),
+        latencyMs: Date.now() - started,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

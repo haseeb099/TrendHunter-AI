@@ -61,6 +61,11 @@ export function MarketDigestCard({
             {item.activeAdCount} ads
           </Badge>
         ) : null}
+        {item.pending ? (
+          <Badge variant="outline" className="text-[10px]">
+            Loading…
+          </Badge>
+        ) : null}
       </div>
       <p className="text-[10px] text-muted-foreground mt-2">
         {item.region} · {new Date(item.fetchedAt).toLocaleDateString()}

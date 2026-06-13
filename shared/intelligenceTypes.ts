@@ -68,7 +68,7 @@ export type TikTokAdsSnapshot = {
   gaps: string[];
   fetchedAt: string;
   isLive: boolean;
-  source: "searchapi" | "scrapecreators" | "cached";
+  source: "searchapi" | "scrapecreators" | "rapidapi_tiktok" | "cached";
   stale?: boolean;
 };
 
@@ -101,7 +101,11 @@ export type MarketDigestItem = {
   activeAdCount: number | null;
   advertiserCount: number | null;
   fetchedAt: string;
-  source: "google_trends" | "meta_ads";
+  source: "google_trends" | "meta_ads" | "tiktok" | "seed";
+  /** True when serving expired cache */
+  stale?: boolean;
+  /** True for seed placeholders before ingest completes */
+  pending?: boolean;
 };
 
 export type IngestRunStatus = {

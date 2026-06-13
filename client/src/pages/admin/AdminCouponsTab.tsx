@@ -34,7 +34,7 @@ const COUPON_TYPES: { value: CouponType; label: string; hint: string }[] = [
   { value: "extend_trial", label: "Extend trial", hint: "Value = extra days" },
   { value: "extend_subscription", label: "Extend subscription", hint: "Value = extra days" },
   { value: "bonus_searches", label: "Bonus searches", hint: "Value = extra monthly searches" },
-  { value: "discount_percent", label: "Discount %", hint: "For future Stripe checkout" },
+  { value: "discount_percent", label: "Discount %", hint: "Creates Stripe promotion code at checkout" },
 ];
 
 const PLANS: PlanId[] = ["starter", "pro", "business", "agency"];

@@ -15,7 +15,9 @@ export type RapidApiProviderId =
   | "rapidapi_aliexpress_datahub"
   | "rapidapi_web_search"
   | "rapidapi_news_data"
-  | "rapidapi_news_api";
+  | "rapidapi_news_api"
+  | "rapidapi_tiktok_scraper"
+  | "rapidapi_tiktok_api";
 
 export type RapidApiProviderConfig = {
   id: RapidApiProviderId;
@@ -156,6 +158,22 @@ export function getRapidApiProviderConfigs(): RapidApiProviderConfig[] {
       enabled: ENV.rapidApiNewsApiEnabled,
       ingestOnly: true,
       label: "News API",
+    },
+    {
+      id: "rapidapi_tiktok_scraper",
+      host: ENV.rapidApiTiktokScraperHost,
+      monthlyCap: ENV.rapidApiTiktokScraperMonthlyCap,
+      enabled: ENV.rapidApiTiktokScraperEnabled,
+      ingestOnly: true,
+      label: "TikTok API – Fast & Reliable Data Scraper",
+    },
+    {
+      id: "rapidapi_tiktok_api",
+      host: ENV.rapidApiTiktokApiHost,
+      monthlyCap: ENV.rapidApiTiktokApiMonthlyCap,
+      enabled: ENV.rapidApiTiktokApiEnabled,
+      ingestOnly: true,
+      label: "Tiktok API (Tikfly)",
     },
   ];
   return configs.filter((p) => p.enabled);

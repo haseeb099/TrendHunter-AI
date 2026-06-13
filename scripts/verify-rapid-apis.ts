@@ -5,6 +5,10 @@ import {
   isRapidApiConfigured,
   searchRapidProducts,
   searchRapidGoogle,
+  searchTikTokVideosByKeyword,
+  fetchTikTokUserMediaFeed,
+  isRapidTikTokApiConfigured,
+  isRapidTikTokScraperConfigured,
 } from "../server/search/rapidApi";
 
 async function main() {
@@ -34,6 +38,19 @@ async function main() {
   const google = await searchRapidGoogle("dropshipping products", "US", { maxResults: 3 });
   console.log(`✓ ${google.length} discovery URLs`);
   google.forEach((p, i) => console.log(`  ${i + 1}. ${p.title.slice(0, 50)}`));
+
+  if (isRapidTikTokApiConfigured()) {
+    console.log("\n--- Tiktok API (Tikfly) video search ---");
+    const tiktok = await searchTikTokVideosByKeyword("wireless earbuds", { count: 3 });
+    console.log(`✓ ${tiktok.length} TikTok videos`);
+    tiktok.forEach((v, i) => console.log(`  ${i + 1}. @${v.author} — ${v.desc?.slice(0, 50) ?? "(no desc)"}`));
+  }
+
+  if (isRapidTikTokScraperConfigured()) {
+    console.log("\n--- TikTok Scraper user feed ---");
+    const feed = await fetchTikTokUserMediaFeed("khaby.lame", { count: 3 });
+    console.log(`✓ ${feed.length} feed items (profile-only on some free tiers)`);
+  }
 
   const after = await getAllRapidApiUsage();
   console.log("\nAfter test:");

@@ -6,6 +6,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { trpc } from "@/lib/trpc";
 import { Megaphone, RefreshCw, Users } from "lucide-react";
 import type { RegionCode } from "@shared/searchTypes";
+import type { AdLibrarySnapshot } from "@shared/intelligenceTypes";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { DataFreshnessBadge } from "./DataFreshnessBadge";
 import { toast } from "sonner";
 
@@ -13,9 +15,16 @@ type AdRadarPanelProps = {
   keyword: string;
   region?: RegionCode;
   compact?: boolean;
+  /** Preloaded snapshot from competitor analysis or parent page */
+  seedSnapshot?: AdLibrarySnapshot | null;
 };
 
-export function AdRadarPanel({ keyword, region = "US", compact = false }: AdRadarPanelProps) {
+export function AdRadarPanel({
+  keyword,
+  region = "US",
+  compact = false,
+  seedSnapshot,
+}: AdRadarPanelProps) {
   const utils = trpc.useUtils();
   const [refreshing, setRefreshing] = useState(false);
   const query = trpc.intelligence.getAdRadar.useQuery(
@@ -23,8 +32,7 @@ export function AdRadarPanel({ keyword, region = "US", compact = false }: AdRada
     { enabled: Boolean(keyword.trim()) }
   );
 
-  const snapshot = query.data?.snapshot;
-  const configured = query.data?.configured ?? false;
+  const snapshot = query.data?.snapshot ?? seedSnapshot ?? undefined;
 
   const handleLiveRefresh = async () => {
     if (!keyword.trim()) return;
@@ -51,7 +59,7 @@ export function AdRadarPanel({ keyword, region = "US", compact = false }: AdRada
     return <p className="text-sm text-muted-foreground">Enter a keyword to scan Meta Ad Library.</p>;
   }
 
-  if (query.isLoading) {
+  if (query.isLoading && !seedSnapshot) {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
         <Spinner className="w-4 h-4" />
@@ -60,20 +68,27 @@ export function AdRadarPanel({ keyword, region = "US", compact = false }: AdRada
     );
   }
 
+  if (query.error && !snapshot) {
+    return (
+      <Alert variant="destructive">
+        <AlertDescription>{query.error.message}</AlertDescription>
+      </Alert>
+    );
+  }
+
   if (!snapshot) {
+    const configured = query.data?.configured ?? true;
     return (
       <div className="space-y-3 py-2">
         <p className="text-sm text-muted-foreground">
-          {configured
-            ? "No cached ads yet. Run daily ingest or scan live (2 credits)."
-            : "Add META_ACCESS_TOKEN to enable Meta Ad Library."}
+          {!configured
+            ? "Meta Ad Library not configured — add META_ACCESS_TOKEN and complete Ad Library API verification."
+            : "Fetching Meta ad data for this keyword… If nothing appears, scan live (2 credits)."}
         </p>
-        {configured ? (
-          <Button size="sm" variant="outline" onClick={handleLiveRefresh} disabled={refreshing}>
-            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
-            Scan live (2 credits)
-          </Button>
-        ) : null}
+        <Button size="sm" variant="outline" onClick={handleLiveRefresh} disabled={refreshing || !configured}>
+          <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
+          Scan live (2 credits)
+        </Button>
       </div>
     );
   }
@@ -134,7 +149,7 @@ export function AdRadarPanel({ keyword, region = "US", compact = false }: AdRada
         size="sm"
         variant="outline"
         onClick={handleLiveRefresh}
-        disabled={refreshing || !configured}
+        disabled={refreshing}
       >
         <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
         Scan live (2 credits)

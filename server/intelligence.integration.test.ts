@@ -43,7 +43,10 @@ const mockTikTokSnapshot = {
 };
 
 vi.mock("./intelligence/trends", () => ({
-  getTrendSignal: vi.fn(async () => mockTrendSignal),
+  getTrendSignal: vi.fn(async (_k: string, _r: string, opts?: { live?: boolean }) => ({
+    ...mockTrendSignal,
+    isLive: Boolean(opts?.live),
+  })),
 }));
 
 vi.mock("./intelligence/adLibrary", () => ({
@@ -58,10 +61,14 @@ vi.mock("./intelligence/tiktokAds", () => ({
   tikTokAdsProvider: vi.fn(() => "searchapi" as const),
 }));
 
-vi.mock("./credits", () => ({
-  spendCredits: vi.fn(async () => 1),
-  getCreditWallet: vi.fn(async () => ({ balance: 100, monthlyAllowance: 100, remaining: 100 })),
-}));
+vi.mock("./credits", async () => {
+  const actual = await vi.importActual<typeof import("./credits")>("./credits");
+  return {
+    ...actual,
+    spendCredits: vi.fn(async () => 1),
+    getCreditWallet: vi.fn(async () => ({ balance: 100, monthlyAllowance: 100, remaining: 100 })),
+  };
+});
 
 describe("intelligence router integration", () => {
   beforeEach(() => {

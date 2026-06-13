@@ -1,10 +1,13 @@
 # DropHunter / TrendHunter — Full Project Audit & Sprint Roadmap (A→Z)
 
 **Audit date:** June 10, 2026  
+**Launch hardening pass:** June 12, 2026 — see [`LAUNCH-AUDIT-2026-06.md`](./LAUNCH-AUDIT-2026-06.md) and [`LAUNCH-CHECKLIST.md`](./LAUNCH-CHECKLIST.md)  
 **Scope:** Entire codebase, docs (`PRD`, `TRD`, `SPRINT-ROADMAP`, `API-ENV-SETUP`), tests, deployment, and product completeness.  
-**Health check:** `pnpm test` — 111/111 passing · `pnpm check` — clean TypeScript
+**Health check:** Run `pnpm check && pnpm test` before deploy (CI enforces on PR/push).
 
 This document extends [`SPRINT-ROADMAP.md`](./SPRINT-ROADMAP.md) (Sprints 1–6, done) with a full audit and a forward roadmap through production launch and beyond.
+
+> **June 12 launch hardening (Phases 1–15):** Full pass completed. Subscription gating via `protectedBase` is **fixed** (B-01). CI, Helmet, password reset, Google OAuth, Docker Stripe env, truth layer badges, provider cache-only defaults, DB indexes, and expanded tests shipped. Automated verification: `pnpm check`, 210 unit tests, `pnpm build`, `pnpm test:e2e` all pass. Remaining launch risks: lifecycle emails, optional Redis for multi-instance rate limits, `self_serve_billing` off by default. Use [`LAUNCH-CHECKLIST.md`](./LAUNCH-CHECKLIST.md) for deploy.
 
 > **Research Engine (S15.5–S25):** Shipped and documented in [`SPRINT-ROADMAP.md`](./SPRINT-ROADMAP.md). The sprints below in **Phase C (S16B–S18B)** are a **parallel Business track** — admin MRR, agent polish, Google OAuth — renamed to avoid collision with Research Engine S16–S25.
 
@@ -23,16 +26,17 @@ DropHunter is a **feature-rich MVP** with a complete workspace (Discover → Val
 | Plan gating (server + client) | Working |
 | Admin (users, plans, coupons, settings, audit) | Working |
 | Stripe Checkout + webhooks + idempotency | Working |
-| Server unit tests (54) | Passing |
+| Server unit tests (210+) | Passing |
 | Docker prod compose + migrations on boot | Working |
 
-**Top risks before public launch**
+**Top risks before public launch** *(updated June 12 — many June 10 items resolved)*
 
-1. **Subscription `isActive` is cosmetic** — expired trials and cancelled subs still get Starter API access (see §3.1).
-2. **No CI/CD** — tests and typecheck are not enforced on push/PR.
-3. **No transactional email** — no password reset, trial-expiry, or payment emails.
-4. **In-memory rate limits** — auth throttling resets on restart and does not work across replicas.
-5. **Agency tier promises unbuilt features** — “Multi-client workspaces” and “White-label export” are marketing copy only.
+1. ~~**Subscription `isActive` is cosmetic**~~ — **Fixed** via `protectedBase` + `assertSubscriptionActive`.
+2. ~~**No CI/CD**~~ — **Fixed** — `.github/workflows/ci.yml`.
+3. **No transactional lifecycle email** — password reset works; trial/payment emails still missing.
+4. **In-memory rate limits without Redis** — document single-instance or set `REDIS_URL`.
+5. ~~**Agency tier unbuilt features**~~ — removed from marketing copy; orgs remain non-goal.
+6. **Self-serve billing defaults off** — enable in Admin → Settings before launch (see launch checklist).
 
 ---
 

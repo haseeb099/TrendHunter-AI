@@ -5,6 +5,7 @@ import {
   assertAccountUsable,
   assertAiQuota,
   assertFeatureAccess,
+  assertIntelReadAccess,
   assertPipelineQuota,
   assertSearchQuota,
   assertSubscriptionActive,
@@ -58,6 +59,13 @@ export const protectedBase = authenticatedProcedure
 export function featureProcedure(feature: FeatureId) {
   return protectedBase.use(async (opts) => {
     await assertFeatureAccess(getCtxUser(opts.ctx), feature);
+    return opts.next(opts);
+  });
+}
+
+export function intelReadProcedure() {
+  return protectedBase.use(async (opts) => {
+    await assertIntelReadAccess(getCtxUser(opts.ctx) as User);
     return opts.next(opts);
   });
 }

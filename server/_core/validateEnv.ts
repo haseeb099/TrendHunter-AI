@@ -9,13 +9,27 @@ import { isFreeRetailEnabled } from "../search/freeRetail";
 import { isShopteraEnabled } from "../search/shoptera";
 import { isRapidAmazonConfigured } from "../search/rapidAmazon";
 import { getRapidApiProviderConfigs, isRapidApiConfigured } from "../search/rapidApi";
-import { isStripeConfigured } from "../stripe";
+import { isStripeConfigured, getStripePriceId, getStripeCreditPackPriceId } from "../stripe";
+import { CREDIT_PACK_IDS } from "@shared/credits";
+import type { PlanId } from "@shared/plans";
 
 const PRODUCTION_STRIPE_VARS = [
   "STRIPE_SECRET_KEY",
   "STRIPE_WEBHOOK_SECRET",
   "STRIPE_PUBLISHABLE_KEY",
 ] as const;
+
+const PRODUCTION_STRIPE_PRICE_VARS = [
+  "STRIPE_PRICE_STARTER",
+  "STRIPE_PRICE_PRO",
+  "STRIPE_PRICE_BUSINESS",
+  "STRIPE_PRICE_AGENCY",
+  "STRIPE_PRICE_CREDITS_50",
+  "STRIPE_PRICE_CREDITS_100",
+  "STRIPE_PRICE_CREDITS_250",
+] as const;
+
+const PAID_PLAN_IDS: Exclude<PlanId, "trial" | "agency">[] = ["starter", "pro", "business"];
 
 export function validateEnvOnStartup(): void {
   if (ENV.isProduction) {
@@ -34,6 +48,26 @@ export function validateEnvOnStartup(): void {
       throw new Error(
         `Missing required Stripe env in production: ${missingStripe.join(", ")}. See docs/API-ENV-SETUP.md`
       );
+    }
+
+    const missingPrices = PRODUCTION_STRIPE_PRICE_VARS.filter((key) => !process.env[key]?.trim());
+    if (missingPrices.length > 0) {
+      throw new Error(
+        `Missing required Stripe price IDs in production: ${missingPrices.join(", ")}. See docs/STRIPE-SETUP.md`
+      );
+    }
+
+    if (isStripeConfigured()) {
+      for (const planId of PAID_PLAN_IDS) {
+        if (!getStripePriceId(planId)) {
+          throw new Error(`Stripe price not configured for plan: ${planId}`);
+        }
+      }
+      for (const packId of CREDIT_PACK_IDS) {
+        if (!getStripeCreditPackPriceId(packId)) {
+          throw new Error(`Stripe price not configured for credit pack: ${packId}`);
+        }
+      }
     }
   }
 

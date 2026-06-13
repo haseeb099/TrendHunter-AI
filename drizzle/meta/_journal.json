@@ -178,10 +178,10 @@
       "breakpoints": true
     },
     {
-      "idx": 25,
+      "idx": 26,
       "version": "5",
-      "when": 1780907000000,
-      "tag": "0025_ingest_retries_columns",
+      "when": 1780908000000,
+      "tag": "0026_supplier_catalog_expand",
       "breakpoints": true
     }
   ]

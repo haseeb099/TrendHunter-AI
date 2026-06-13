@@ -1,14 +1,14 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, publicProcedure } from "./_core/trpc";
-import { featureProcedure, protectedBase } from "./_core/planMiddleware";
+import { featureProcedure, intelReadProcedure, protectedBase } from "./_core/planMiddleware";
 
 const intelProcedure = featureProcedure("discover");
 import { getCtxUser } from "./_core/trpc";
 import { assertRateLimit, getClientIp } from "./_core/rateLimit";
-import { spendCredits } from "./credits";
+import { isBillableLiveFetch, spendCredits } from "./credits";
 import { getTrendSignal } from "./intelligence/trends";
-import { isSerpConfigured } from "./search/serpapi";
+import { isTrendIntelConfigured, getIntelProviderStatus } from "./intelligence/providers";
 import { getAdLibrarySnapshot, isMetaAdLibraryConfigured } from "./intelligence/adLibrary";
 import {
   getTikTokAdsSnapshot,
@@ -18,7 +18,8 @@ import {
 } from "./intelligence/tiktokAds";
 import { getProductIntelligence, buildIntelligenceContext } from "./intelligence/summary";
 import { attachProductsTruthLabels, attachApiTruthLabels } from "./search/truthLabels";
-import { buildMarketDigest, listTrendingKeywords, listAdRadarKeywords } from "./intelligence/marketDigest";
+import { buildMarketDigest, listTrendingKeywords, listAdRadarKeywords, listTikTokDigestKeywords } from "./intelligence/marketDigest";
+import { warmRegionIntelCache, regionHasIntelCache } from "./intelligence/intelWarm";
 import {
   getLatestIngestRun,
   getKeywordWatches,
@@ -34,6 +35,7 @@ import { canAddKeywordWatch, keywordWatchLimit } from "@shared/intelAlerts";
 import { isEmailConfigured } from "./notifications/email";
 import { ENV } from "./_core/env";
 import { sanitizeKeyword } from "@shared/keywordUtils";
+import { normalizeIntelKeyword } from "@shared/intelKeyword";
 import type { RegionCode } from "@shared/searchTypes";
 import type { TrendWindow } from "@shared/intelligenceTypes";
 import { searchTikTok, isTikTokConfigured } from "./search/tiktok";
@@ -55,11 +57,11 @@ function requireKeyword(raw: string): string {
   if (!keyword) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Keyword is required" });
   }
-  return keyword;
+  return normalizeIntelKeyword(keyword) || keyword;
 }
 
 export const intelligenceRouter = router({
-  getTrendPulse: featureProcedure("discover")
+  getTrendPulse: intelReadProcedure()
     .input(
       z.object({
         keyword: z.string().min(1),
@@ -77,13 +79,13 @@ export const intelligenceRouter = router({
         live: input.live,
         timeframe: input.timeframe as TrendWindow | undefined,
       });
-      if (input.live) {
+      if (input.live && isBillableLiveFetch(signal)) {
         creditsUsed = await spendCredits(getCtxUser(ctx), "trends_live", { keyword });
       }
       return attachApiTruthLabels(
-        { signal, creditsUsed, region },
+        { signal, creditsUsed, region, configured: isTrendIntelConfigured() },
         {
-          configured: isSerpConfigured(),
+          configured: isTrendIntelConfigured(),
           hasData: Boolean(signal),
           live: Boolean(input.live),
           stale: signal?.stale,
@@ -91,7 +93,7 @@ export const intelligenceRouter = router({
       );
     }),
 
-  getAdRadar: featureProcedure("discover")
+  getAdRadar: intelReadProcedure()
     .input(
       z.object({
         keyword: z.string().min(1),
@@ -105,7 +107,7 @@ export const intelligenceRouter = router({
       let creditsUsed = 0;
 
       const snapshot = await getAdLibrarySnapshot(keyword, region, { live: input.live });
-      if (input.live) {
+      if (input.live && isBillableLiveFetch(snapshot)) {
         creditsUsed = await spendCredits(getCtxUser(ctx), "ad_library_live", { keyword });
       }
       const configured = isMetaAdLibraryConfigured();
@@ -124,7 +126,7 @@ export const intelligenceRouter = router({
       );
     }),
 
-  getTikTokRadar: featureProcedure("discover")
+  getTikTokRadar: intelReadProcedure()
     .input(
       z.object({
         keyword: z.string().min(1),
@@ -138,7 +140,7 @@ export const intelligenceRouter = router({
       let creditsUsed = 0;
 
       const snapshot = await getTikTokAdsSnapshot(keyword, region, { live: input.live });
-      if (input.live) {
+      if (input.live && isBillableLiveFetch(snapshot)) {
         creditsUsed = await spendCredits(getCtxUser(ctx), "tiktok_ads_live", { keyword });
       }
       const configured = isTikTokAdsConfigured();
@@ -159,8 +161,26 @@ export const intelligenceRouter = router({
     }),
 
   listTikTokKeywords: intelProcedure
-    .input(z.object({ region: regionSchema.optional() }))
-    .query(({ input }) => listTikTokAdKeywords(input.region ?? ENV.defaultRegion)),
+    .input(
+      z.object({
+        region: regionSchema.optional(),
+        category: z.string().optional(),
+        limit: z.number().min(1).max(50).optional(),
+      })
+    )
+    .query(({ input }) => {
+      const region = (input.region ?? ENV.defaultRegion) as RegionCode;
+      return listTikTokDigestKeywords(region, input.limit ?? 24, input.category);
+    }),
+
+  warmIntelCache: intelProcedure
+    .input(z.object({ region: regionSchema.optional(), force: z.boolean().optional() }))
+    .mutation(async ({ input }) => {
+      const region = (input.region ?? ENV.defaultRegion) as RegionCode;
+      return warmRegionIntelCache(region, { force: input.force });
+    }),
+
+  getProviderStatus: intelProcedure.query(() => getIntelProviderStatus()),
 
   /** TikTok Shop product trends — separate from TikTok Ads radar */
   getTikTokShopTrends: intelProcedure
@@ -199,36 +219,50 @@ export const intelligenceRouter = router({
         );
       }
 
-      const results = await searchTikTok(keyword, region);
-      const labeled = attachProductsTruthLabels(results, { dataMode: "live" });
-      return attachApiTruthLabels(
-        {
-          region,
-          keyword,
-          configured: true,
-          products: labeled.slice(0, limit).map((p) => ({
-            id: p.id,
-            title: p.title,
-            price: p.price,
-            image: p.image,
-            platform: p.platform,
-            dataState: p.dataState,
-            dataLabel: p.dataLabel,
-            inferredScores: p.inferredScores,
-            isTrending: p.isTrending,
-          })),
-          fetchedAt: new Date().toISOString(),
-          message:
-            labeled.length === 0
-              ? "No TikTok Shop products found for this keyword. Try a broader search term."
-              : undefined,
-        },
-        {
-          configured: true,
-          hasData: labeled.length > 0,
-          live: true,
-        }
-      );
+      try {
+        const results = await searchTikTok(keyword, region);
+        const labeled = attachProductsTruthLabels(results, { dataMode: "live" });
+        return attachApiTruthLabels(
+          {
+            region,
+            keyword,
+            configured: true,
+            products: labeled.slice(0, limit).map((p) => ({
+              id: p.id,
+              title: p.title,
+              price: p.price,
+              image: p.image,
+              platform: p.platform,
+              dataState: p.dataState,
+              dataLabel: p.dataLabel,
+              inferredScores: p.inferredScores,
+              isTrending: p.isTrending,
+            })),
+            fetchedAt: new Date().toISOString(),
+            message:
+              labeled.length === 0
+                ? "No TikTok Shop products found for this keyword. Try a broader search term."
+                : undefined,
+          },
+          {
+            configured: true,
+            hasData: labeled.length > 0,
+            live: true,
+          }
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "TikTok Shop search failed";
+        return attachApiTruthLabels(
+          {
+            region,
+            keyword,
+            configured: true,
+            products: [],
+            message,
+          },
+          { configured: true, hasData: false, unavailable: true }
+        );
+      }
     }),
 
   getProductIntel: intelProcedure
@@ -246,7 +280,8 @@ export const intelligenceRouter = router({
         timeframe: input.timeframe as TrendWindow | undefined,
       });
       return attachApiTruthLabels(summary, {
-        configured: isSerpConfigured() || isMetaAdLibraryConfigured(),
+        configured:
+          isTrendIntelConfigured() || isMetaAdLibraryConfigured() || isTikTokAdsConfigured(),
         hasData: summary.fetchedAt != null,
         stale: summary.stale,
       });
@@ -273,7 +308,8 @@ export const intelligenceRouter = router({
           ads,
         },
         {
-          configured: isSerpConfigured() || isMetaAdLibraryConfigured(),
+          configured:
+            isTrendIntelConfigured() || isMetaAdLibraryConfigured() || isTikTokAdsConfigured(),
           hasData: Boolean(trend || ads),
           stale: Boolean(trend?.stale || ads?.stale),
         }
@@ -290,13 +326,20 @@ export const intelligenceRouter = router({
     )
     .query(async ({ input }) => {
       const region = (input.region ?? ENV.defaultRegion) as RegionCode;
+      const hasCache = await regionHasIntelCache(region);
+      if (!hasCache) {
+        void warmRegionIntelCache(region, { background: true });
+      }
       const digest = await buildMarketDigest(region, input.category);
       const ingest = await getLatestIngestRun();
+      const providers = getIntelProviderStatus();
       return {
         region,
         ...digest,
-        metaConfigured: isMetaAdLibraryConfigured(),
-        serpConfigured: isSerpConfigured(),
+        metaConfigured: providers.meta,
+        serpConfigured: providers.trends,
+        tiktokConfigured: providers.tiktokAds,
+        warming: !hasCache,
         lastIngestAt: ingest?.completedAt?.toISOString() ?? ingest?.startedAt.toISOString() ?? null,
         cacheTtlHours: ENV.trendingCacheTtlHours,
       };
@@ -525,7 +568,8 @@ export const intelligenceRouter = router({
           updatedAt: signal?.fetchedAt ?? ads?.fetchedAt ?? tiktok?.fetchedAt ?? null,
         },
         {
-          configured: isSerpConfigured() || isMetaAdLibraryConfigured() || isTikTokAdsConfigured(),
+          configured:
+            isTrendIntelConfigured() || isMetaAdLibraryConfigured() || isTikTokAdsConfigured(),
           hasData: Boolean(signal || ads || tiktok),
           stale: Boolean(signal?.stale || ads?.stale || tiktok?.stale),
         }

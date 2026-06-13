@@ -1,9 +1,10 @@
-import { desc, sql } from "drizzle-orm";
+import { desc, eq, or, sql } from "drizzle-orm";
 import type { ProductSearchResult, RegionCode } from "@shared/searchTypes";
 import { catalogProducts } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { searchFreeRetail } from "../search/freeRetail";
 import { allowsSyntheticCatalog } from "../truthMode";
+import { inferCategoryFromTitle } from "../search/categories";
 
 export async function upsertCatalogProducts(
   products: Array<{
@@ -84,6 +85,49 @@ export async function searchCatalog(
     currency: row.currency ?? "USD",
     category: row.category ?? undefined,
     sourceProvider: row.source === "free_retail" ? ("free_retail" as const) : undefined,
+  }));
+}
+
+/** Recent catalog listings for a region — used to pad sparse discover feeds. */
+export async function listCatalogByRegion(
+  region: RegionCode,
+  category?: string | null,
+  limit = 48
+): Promise<ProductSearchResult[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const rows = await db
+    .select()
+    .from(catalogProducts)
+    .where(or(eq(catalogProducts.region, region), eq(catalogProducts.region, "GLOBAL")))
+    .orderBy(desc(catalogProducts.fetchedAt))
+    .limit(Math.min(limit * 4, 400));
+
+  const filtered = rows.filter((row) => {
+    if (category) {
+      const inferred = inferCategoryFromTitle(row.title);
+      const rowCat = row.category ?? inferred;
+      if (rowCat && rowCat !== category) return false;
+    }
+    return true;
+  });
+
+  return filtered.slice(0, limit).map((row) => ({
+    id: `${row.source}-${row.externalId}`,
+    title: row.title,
+    price: row.price,
+    platform: row.platform,
+    image: row.image,
+    shippingDays: null,
+    supplier: row.source,
+    rating: row.rating,
+    sourceUrl: row.sourceUrl,
+    region: (row.region as RegionCode) ?? region,
+    currency: row.currency ?? "USD",
+    category: row.category ?? undefined,
+    sourceProvider: row.source === "free_retail" ? ("free_retail" as const) : undefined,
+    isTrending: false,
   }));
 }
 

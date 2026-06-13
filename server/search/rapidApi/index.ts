@@ -10,6 +10,8 @@ export * from "./aliexpressDatahub";
 export * from "./webSearch";
 export * from "./newsData";
 export * from "./newsApi";
+export * from "./tiktokScraper";
+export * from "./tiktokApi23";
 export * from "./googleSearch";
 export * from "./etsy";
 export * from "./pangolinfo";
